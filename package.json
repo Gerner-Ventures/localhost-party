@@ -24,6 +24,8 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.56",
     "@anthropic-ai/sdk": "^0.71.2",
+    "@neondatabase/serverless": "^1.0.2",
+    "@prisma/adapter-neon": "^7.1.0",
     "@prisma/client": "^7.1.0",
     "ai": "^5.0.113",
     "lightningcss-darwin-arm64": "^1.30.2",
