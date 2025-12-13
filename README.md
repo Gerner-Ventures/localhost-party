@@ -53,34 +53,40 @@ localhost-party/
 ### Installation
 
 1. Clone the repository:
+
 ```bash
 git clone https://github.com/YOUR_USERNAME/localhost-party.git
 cd localhost-party
 ```
 
 2. Install dependencies:
+
 ```bash
 npm install
 ```
 
 3. Set up environment variables:
+
 ```bash
 cp .env.example .env
 ```
 
 Add your credentials:
+
 ```
 DATABASE_URL="your-neon-database-url"
 ANTHROPIC_API_KEY="your-anthropic-api-key"
 ```
 
 4. Initialize the database:
+
 ```bash
 npx prisma generate
 npx prisma db push
 ```
 
 5. Run the development server:
+
 ```bash
 npm run dev
 ```
@@ -89,10 +95,33 @@ npm run dev
 
 ## Development
 
+### Available Scripts
+
 - `npm run dev` - Start development server
 - `npm run build` - Build for production
 - `npm run start` - Start production server
 - `npm run lint` - Run ESLint
+- `npm run type-check` - Type check TypeScript files
+
+### Git Hooks
+
+This project uses [Husky](https://typicode.github.io/husky/) to enforce code quality:
+
+**Pre-commit:**
+
+- Formats and lints staged files with Prettier and ESLint
+- Type checks the entire project
+
+**Pre-push:**
+
+- Attempts to build the project (currently non-blocking due to turbo/SWC issue)
+
+**Commit Message:**
+
+- Validates commit messages follow [Conventional Commits](https://www.conventionalcommits.org/)
+- Allowed types: `feat`, `fix`, `refactor`, `style`, `test`, `docs`, `chore`, `build`, `ci`, `perf`, `revert`
+
+**Bypass hooks:** In emergencies, you can skip hooks with `git commit --no-verify` or `git push --no-verify`
 
 ## How to Play
 

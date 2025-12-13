@@ -1,3 +1,5 @@
+#!/usr/bin/env sh
+
 # Format and lint staged files
 npx lint-staged
 

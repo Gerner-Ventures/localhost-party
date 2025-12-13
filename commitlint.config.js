@@ -9,6 +9,10 @@ module.exports = {
       'test',     // Adding tests
       'docs',     // Documentation
       'chore',    // Maintenance
+      'build',    // Build system or external dependencies
+      'ci',       // CI/CD changes
+      'perf',     // Performance improvements
+      'revert',   // Revert previous commit
     ]],
   },
 };
