@@ -1,0 +1,113 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Room represents a game room/lobby
+model Room {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  status    String   @default("lobby") // lobby, active, completed
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  players Player[]
+  games   Game[]
+
+  @@index([code])
+}
+
+// Player in a room
+model Player {
+  id       String   @id @default(cuid())
+  roomId   String
+  name     String
+  socketId String?
+  score    Int      @default(0)
+  joinedAt DateTime @default(now())
+
+  room        Room         @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  submissions Submission[]
+  votes       Vote[]
+
+  @@unique([roomId, name])
+  @@index([roomId])
+  @@index([socketId])
+}
+
+// Game session within a room
+model Game {
+  id           String   @id @default(cuid())
+  roomId       String
+  type         String   // quiplash, drawful, fibbage, etc.
+  status       String   @default("active") // active, completed
+  currentRound Int      @default(1)
+  totalRounds  Int      @default(3)
+  state        Json?    // Flexible JSON for game-specific state
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  completedAt  DateTime?
+
+  room        Room         @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  rounds      Round[]
+
+  @@index([roomId])
+}
+
+// Round within a game (for games with multiple rounds)
+model Round {
+  id        String   @id @default(cuid())
+  gameId    String
+  roundNum  Int
+  prompt    String
+  state     Json?    // Round-specific state
+  createdAt DateTime @default(now())
+
+  game        Game         @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  submissions Submission[]
+
+  @@unique([gameId, roundNum])
+  @@index([gameId])
+}
+
+// Player submission for a round
+model Submission {
+  id        String   @id @default(cuid())
+  roundId   String
+  playerId  String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+
+  round  Round  @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  votes  Vote[]
+
+  @@unique([roundId, playerId])
+  @@index([roundId])
+  @@index([playerId])
+}
+
+// Vote on a submission
+model Vote {
+  id           String   @id @default(cuid())
+  submissionId String
+  voterId      String
+  createdAt    DateTime @default(now())
+
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  voter      Player     @relation(fields: [voterId], references: [id], onDelete: Cascade)
+
+  @@unique([submissionId, voterId])
+  @@index([submissionId])
+  @@index([voterId])
+}

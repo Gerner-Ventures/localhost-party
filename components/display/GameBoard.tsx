@@ -1,6 +1,7 @@
 'use client';
 
 import type { GameState } from '@/lib/types';
+import { QuiplashDisplay } from '@/components/games/QuiplashDisplay';
 
 interface GameBoardProps {
   gameState: GameState;
@@ -27,36 +28,43 @@ export function GameBoard({ gameState }: GameBoardProps) {
       {/* Game Content Area */}
       <div className="flex-1 w-full max-w-6xl bg-white/10 backdrop-blur-sm rounded-3xl p-12 border-2 border-white/20">
         <div className="flex flex-col items-center justify-center h-full">
-          {/* Placeholder - Will be replaced by game-specific components */}
-          {gameState.phase === 'prompt' && (
-            <div className="text-center">
-              <h2 className="text-6xl font-black mb-8">Get Ready!</h2>
-              <p className="text-4xl opacity-80">Check your phones for the prompt</p>
-            </div>
-          )}
+          {/* Game-specific components */}
+          {gameState.gameType === 'quiplash' ? (
+            <QuiplashDisplay gameState={gameState} />
+          ) : (
+            /* Fallback for other game types */
+            <>
+              {gameState.phase === 'prompt' && (
+                <div className="text-center">
+                  <h2 className="text-6xl font-black mb-8">Get Ready!</h2>
+                  <p className="text-4xl opacity-80">Check your phones for the prompt</p>
+                </div>
+              )}
 
-          {gameState.phase === 'submit' && (
-            <div className="text-center">
-              <h2 className="text-6xl font-black mb-8">Submit Your Answers</h2>
-              <p className="text-4xl opacity-80">Waiting for players...</p>
-              <div className="mt-12 flex gap-4 justify-center">
-                {gameState.players.map((player) => (
-                  <div
-                    key={player.id}
-                    className="px-6 py-3 bg-white/20 rounded-xl text-2xl"
-                  >
-                    {player.name} {player.isConnected ? '✓' : '⏳'}
+              {gameState.phase === 'submit' && (
+                <div className="text-center">
+                  <h2 className="text-6xl font-black mb-8">Submit Your Answers</h2>
+                  <p className="text-4xl opacity-80">Waiting for players...</p>
+                  <div className="mt-12 flex gap-4 justify-center">
+                    {gameState.players.map((player) => (
+                      <div
+                        key={player.id}
+                        className="px-6 py-3 bg-white/20 rounded-xl text-2xl"
+                      >
+                        {player.name} {player.isConnected ? '✓' : '⏳'}
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
+                </div>
+              )}
 
-          {gameState.phase === 'vote' && (
-            <div className="text-center">
-              <h2 className="text-6xl font-black mb-8">Time to Vote!</h2>
-              <p className="text-4xl opacity-80">Cast your votes on your phones</p>
-            </div>
+              {gameState.phase === 'vote' && (
+                <div className="text-center">
+                  <h2 className="text-6xl font-black mb-8">Time to Vote!</h2>
+                  <p className="text-4xl opacity-80">Cast your votes on your phones</p>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

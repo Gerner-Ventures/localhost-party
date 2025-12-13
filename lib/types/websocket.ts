@@ -20,5 +20,6 @@ export type WebSocketEvent =
   | { type: 'player:error'; payload: { message: string } }
   | { type: 'game:state-update'; payload: GameState }
   | { type: 'game:start'; payload: { roomCode: string; gameType: GameType } }
+  | { type: 'game:next-round'; payload: { roomCode: string } }
   | { type: 'player:submit'; payload: SubmitPayload }
   | { type: 'player:vote'; payload: VotePayload };

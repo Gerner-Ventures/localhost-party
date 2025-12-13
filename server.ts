@@ -1,9 +1,19 @@
-const { createServer } = require('http');
-const { parse } = require('url');
-const next = require('next');
-const { Server } = require('socket.io');
-const crypto = require('crypto');
-const sharedRooms = require('./lib/shared-rooms');
+import { createServer } from 'http';
+import { parse } from 'url';
+import next from 'next';
+import { Server } from 'socket.io';
+import crypto from 'crypto';
+import * as sharedRooms from './lib/shared-rooms';
+import {
+  initializeQuiplashGame,
+  handleSubmission,
+  handleVote,
+  advanceToNextRound,
+  getPlayerPrompt,
+} from './lib/games/quiplash';
+import { db } from './lib/db';
+import type { GameState } from './lib/types/game';
+import type { Player } from './lib/types/player';
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = 'localhost';
@@ -21,7 +31,7 @@ const ROOM_CLEANUP_INTERVAL = 5 * 60 * 1000; // Check every 5 minutes
 const ROOM_CLEANUP_BUFFER = 60 * 1000; // 1 minute buffer before deletion
 
 // Sanitize player name on the server side
-function sanitizePlayerName(name) {
+function sanitizePlayerName(name: unknown): string {
   if (typeof name !== 'string') return '';
   return name
     .trim()
@@ -31,13 +41,13 @@ function sanitizePlayerName(name) {
 }
 
 // Validate room code format
-function isValidRoomCode(code) {
+function isValidRoomCode(code: unknown): code is string {
   if (typeof code !== 'string') return false;
   return /^[A-Z]{4}$/.test(code);
 }
 
 // Validate and sanitize submission/vote data
-function validatePayloadData(data) {
+function validatePayloadData(data: unknown): { valid: boolean; sanitized: any } {
   if (data === null || data === undefined) {
     return { valid: false, sanitized: null };
   }
@@ -54,15 +64,15 @@ function validatePayloadData(data) {
   if (typeof data === 'object' && !Array.isArray(data)) {
     // Only allow specific known properties
     const allowed = ['choice', 'optionId', 'answerId', 'value', 'text'];
-    const sanitized = {};
+    const sanitized: Record<string, any> = {};
     for (const key of allowed) {
-      if (data[key] !== undefined) {
-        if (typeof data[key] === 'string') {
-          sanitized[key] = data[key].slice(0, 500).replace(/[<>]/g, '');
-        } else if (typeof data[key] === 'number') {
-          sanitized[key] = data[key];
-        } else if (typeof data[key] === 'boolean') {
-          sanitized[key] = data[key];
+      if ((data as any)[key] !== undefined) {
+        if (typeof (data as any)[key] === 'string') {
+          sanitized[key] = (data as any)[key].slice(0, 500).replace(/[<>]/g, '');
+        } else if (typeof (data as any)[key] === 'number') {
+          sanitized[key] = (data as any)[key];
+        } else if (typeof (data as any)[key] === 'boolean') {
+          sanitized[key] = (data as any)[key];
         }
       }
     }
@@ -75,7 +85,7 @@ function validatePayloadData(data) {
 app.prepare().then(() => {
   const httpServer = createServer(async (req, res) => {
     try {
-      const parsedUrl = parse(req.url, true);
+      const parsedUrl = parse(req.url || '', true);
       await handle(req, res, parsedUrl);
     } catch (err) {
       console.error('Error occurred handling', req.url, err);
@@ -92,7 +102,7 @@ app.prepare().then(() => {
   });
 
   // Helper function to get or create room (uses shared registry)
-  function getRoom(roomCode) {
+  function getRoom(roomCode: string): any {
     let room = sharedRooms.get(roomCode);
     if (!room) {
       room = {
@@ -102,7 +112,7 @@ app.prepare().then(() => {
           roomCode,
           gameType: null,
           currentRound: 0,
-          phase: 'lobby',
+          phase: 'lobby' as const,
           players: [],
         },
         displaySocketId: null,
@@ -151,7 +161,7 @@ app.prepare().then(() => {
   });
 
   // Helper function to broadcast game state to all clients in a room
-  function broadcastGameState(roomCode) {
+  function broadcastGameState(roomCode: string): void {
     const room = sharedRooms.get(roomCode);
     if (!room) return;
 
@@ -205,7 +215,7 @@ app.prepare().then(() => {
       const room = getRoom(upperRoomCode);
 
       // Check if player already exists (reconnection)
-      let player = room.players.find((p) => p.name === sanitizedName);
+      let player = room.players.find((p: any) => p.name === sanitizedName);
 
       if (player) {
         // Reconnection: update socket ID
@@ -270,7 +280,7 @@ app.prepare().then(() => {
     });
 
     // Start game
-    socket.on('game:start', ({ roomCode, gameType }) => {
+    socket.on('game:start', async ({ roomCode, gameType }) => {
       console.log(`🎮 Starting game "${gameType}" in room ${roomCode}`);
 
       const room = sharedRooms.get(roomCode);
@@ -280,17 +290,52 @@ app.prepare().then(() => {
         return;
       }
 
-      // Update game state
-      room.gameState.gameType = gameType;
-      room.gameState.phase = 'prompt';
-      room.gameState.currentRound = 1;
+      // Initialize game based on type
+      if (gameType === 'quiplash') {
+        room.gameState = initializeQuiplashGame(roomCode, room.players);
+      } else {
+        // Fallback for other game types
+        room.gameState.gameType = gameType;
+        room.gameState.phase = 'prompt';
+        room.gameState.currentRound = 1;
+      }
+
+      // Persist room and game to database
+      try {
+        const dbRoom = await db.room.upsert({
+          where: { code: roomCode },
+          create: {
+            code: roomCode,
+            status: 'active',
+          },
+          update: {
+            status: 'active',
+          },
+        });
+
+        // Create game record
+        await db.game.create({
+          data: {
+            roomId: dbRoom.id,
+            type: gameType,
+            status: 'active',
+            totalRounds: 3,
+            state: room.gameState,
+          },
+        });
+
+        console.log(`💾 Game persisted to database for room ${roomCode}`);
+      } catch (error) {
+        console.error('Failed to persist game to database:', error);
+        // Continue anyway - game works in-memory
+      }
 
       // Broadcast updated state
       broadcastGameState(roomCode);
     });
 
     // Generic player submission with validation
-    socket.on('player:submit', ({ roomCode, data }) => {
+    socket.on('player:submit', async ({ roomCode, data }) => {
       // Validate room code
       if (!isValidRoomCode(roomCode)) {
         socket.emit('player:error', { message: 'Invalid room code' });
@@ -312,24 +357,88 @@ app.prepare().then(() => {
         return;
       }
 
-      // Store submission in game state (game-specific logic will go here)
-      if (!room.gameState.submissions) {
-        room.gameState.submissions = [];
-      }
+      // Handle submission based on game type
+      if (room.gameState.gameType === 'quiplash') {
+        room.gameState = handleSubmission(
+          room.gameState as GameState,
+          socket.data.playerId,
+          socket.data.playerName,
+          sanitized
+        ) as any;
 
-      room.gameState.submissions.push({
-        playerId: socket.data.playerId,
-        playerName: socket.data.playerName,
-        data: sanitized,
-        timestamp: Date.now(),
-      });
+        // Persist submission to database (async, non-blocking)
+        try {
+          const game = await db.game.findFirst({
+            where: {
+              room: { code: roomCode },
+              status: 'active'
+            },
+            include: { rounds: true }
+          });
+
+          if (game) {
+            // Find or create round
+            let round = game.rounds.find((r: any) => r.roundNum === room.gameState.currentRound);
+            if (!round) {
+              const prompt = getPlayerPrompt(room.gameState as GameState, socket.data.playerId);
+              round = await db.round.create({
+                data: {
+                  gameId: game.id,
+                  roundNum: room.gameState.currentRound,
+                  prompt: prompt?.text || '',
+                },
+              });
+            }
+
+            // Find or create player in database
+            const dbRoom = await db.room.findUnique({ where: { code: roomCode } });
+            if (dbRoom) {
+              const dbPlayer = await db.player.upsert({
+                where: { roomId_name: { roomId: dbRoom.id, name: socket.data.playerName } },
+                create: {
+                  roomId: dbRoom.id,
+                  name: socket.data.playerName,
+                  socketId: socket.id,
+                },
+                update: {
+                  socketId: socket.id,
+                },
+              });
+
+              // Create submission
+              await db.submission.create({
+                data: {
+                  roundId: round.id,
+                  playerId: dbPlayer.id,
+                  content: sanitized,
+                },
+              });
+            }
+          }
+        } catch (error) {
+          console.error('Failed to persist submission:', error);
+          // Continue - game works in-memory
+        }
+      } else {
+        // Generic handling for other games
+        if (!room.gameState.submissions) {
+          room.gameState.submissions = [];
+        }
+
+        room.gameState.submissions.push({
+          playerId: socket.data.playerId,
+          playerName: socket.data.playerName,
+          data: sanitized,
+          timestamp: Date.now(),
+        });
+      }
 
       // Broadcast updated state
       broadcastGameState(roomCode);
     });
 
     // Generic player vote with validation
-    socket.on('player:vote', ({ roomCode, data }) => {
+    socket.on('player:vote', async ({ roomCode, data }) => {
       // Validate room code
       if (!isValidRoomCode(roomCode)) {
         socket.emit('player:error', { message: 'Invalid room code' });
@@ -351,20 +460,116 @@ app.prepare().then(() => {
         return;
       }
 
-      // Store vote in game state (game-specific logic will go here)
-      if (!room.gameState.votes) {
-        room.gameState.votes = [];
-      }
+      // Handle vote based on game type
+      if (room.gameState.gameType === 'quiplash') {
+        room.gameState = handleVote(
+          room.gameState as GameState,
+          socket.data.playerId,
+          socket.data.playerName,
+          sanitized
+        ) as any;
 
-      room.gameState.votes.push({
-        playerId: socket.data.playerId,
-        playerName: socket.data.playerName,
-        data: sanitized,
-        timestamp: Date.now(),
-      });
+        // Persist vote to database (async, non-blocking)
+        try {
+          const game = await db.game.findFirst({
+            where: {
+              room: { code: roomCode },
+              status: 'active'
+            }
+          });
+
+          if (game) {
+            // Find the submission being voted for
+            const votedSubmission = await db.submission.findFirst({
+              where: {
+                round: {
+                  gameId: game.id,
+                  roundNum: room.gameState.currentRound,
+                },
+                player: {
+                  room: { code: roomCode }
+                }
+              },
+              include: { player: true }
+            });
+
+            if (votedSubmission) {
+              const dbRoom = await db.room.findUnique({ where: { code: roomCode } });
+              if (dbRoom) {
+                const dbVoter = await db.player.findFirst({
+                  where: {
+                    roomId: dbRoom.id,
+                    name: socket.data.playerName,
+                  },
+                });
+
+                if (dbVoter) {
+                  await db.vote.create({
+                    data: {
+                      submissionId: votedSubmission.id,
+                      voterId: dbVoter.id,
+                    },
+                  });
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Failed to persist vote:', error);
+          // Continue - game works in-memory
+        }
+      } else {
+        // Generic handling for other games
+        if (!room.gameState.votes) {
+          room.gameState.votes = [];
+        }
+
+        room.gameState.votes.push({
+          playerId: socket.data.playerId,
+          playerName: socket.data.playerName,
+          data: sanitized,
+          timestamp: Date.now(),
+        });
+      }
 
       // Broadcast updated state
       broadcastGameState(roomCode);
+    });
+
+    // Advance to next round (for Quiplash and similar games)
+    socket.on('game:next-round', async ({ roomCode }) => {
+      if (!isValidRoomCode(roomCode)) {
+        socket.emit('player:error', { message: 'Invalid room code' });
+        return;
+      }
+
+      const room = sharedRooms.get(roomCode);
+      if (!room) {
+        socket.emit('player:error', { message: 'Room not found' });
+        return;
+      }
+
+      if (room.gameState.gameType === 'quiplash') {
+        room.gameState = advanceToNextRound(room.gameState as GameState) as any;
+
+        // Update game state in database
+        try {
+          await db.game.updateMany({
+            where: {
+              room: { code: roomCode },
+              status: 'active',
+            },
+            data: {
+              currentRound: room.gameState.currentRound,
+              state: room.gameState,
+            },
+          });
+        } catch (error) {
+          console.error('Failed to update game state:', error);
+        }
+
+        broadcastGameState(roomCode);
+      }
     });
 
     // Heartbeat/ping for connection health

@@ -28,6 +28,13 @@ function PlayerLobbyContent() {
     }
   }, [roomCode, router]);
 
+  // Redirect to game controller when game starts
+  useEffect(() => {
+    if (gameState && gameState.phase !== 'lobby' && roomCode) {
+      router.push(`/play/game?code=${roomCode}`);
+    }
+  }, [gameState, roomCode, router]);
+
   const currentPlayer = gameState?.players.find(
     (p) => p.name === playerName
   );
