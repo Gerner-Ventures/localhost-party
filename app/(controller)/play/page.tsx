@@ -26,10 +26,11 @@ function JoinRoomContent() {
   const [isJoining, setIsJoining] = useState(false);
 
   // Load saved player name from localStorage if it exists
+  // Re-sanitize in case sanitization logic changed or localStorage was tampered with
   useEffect(() => {
     const savedName = localStorage.getItem("playerName");
     if (savedName) {
-      setPlayerName(savedName);
+      setPlayerName(sanitizePlayerName(savedName));
     }
   }, []);
 

@@ -2,6 +2,8 @@ const { createServer } = require('http');
 const { parse } = require('url');
 const next = require('next');
 const { Server } = require('socket.io');
+const crypto = require('crypto');
+const sharedRooms = require('./lib/shared-rooms');
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = 'localhost';
@@ -10,13 +12,13 @@ const port = parseInt(process.env.PORT || '3000', 10);
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
-// In-memory storage for rooms and players
-const rooms = new Map();
+// Player socket tracking
 const playerSockets = new Map(); // socketId -> player info
 
 // Room cleanup settings
 const ROOM_IDLE_TIMEOUT = 30 * 60 * 1000; // 30 minutes
 const ROOM_CLEANUP_INTERVAL = 5 * 60 * 1000; // Check every 5 minutes
+const ROOM_CLEANUP_BUFFER = 60 * 1000; // 1 minute buffer before deletion
 
 // Sanitize player name on the server side
 function sanitizePlayerName(name) {
@@ -32,6 +34,42 @@ function sanitizePlayerName(name) {
 function isValidRoomCode(code) {
   if (typeof code !== 'string') return false;
   return /^[A-Z]{4}$/.test(code);
+}
+
+// Validate and sanitize submission/vote data
+function validatePayloadData(data) {
+  if (data === null || data === undefined) {
+    return { valid: false, sanitized: null };
+  }
+
+  // If it's a string, sanitize it
+  if (typeof data === 'string') {
+    const sanitized = data
+      .slice(0, 1000) // Max 1000 chars for text submissions
+      .replace(/[<>]/g, ''); // Remove HTML brackets
+    return { valid: true, sanitized };
+  }
+
+  // If it's a simple object (vote choice, etc.), validate structure
+  if (typeof data === 'object' && !Array.isArray(data)) {
+    // Only allow specific known properties
+    const allowed = ['choice', 'optionId', 'answerId', 'value', 'text'];
+    const sanitized = {};
+    for (const key of allowed) {
+      if (data[key] !== undefined) {
+        if (typeof data[key] === 'string') {
+          sanitized[key] = data[key].slice(0, 500).replace(/[<>]/g, '');
+        } else if (typeof data[key] === 'number') {
+          sanitized[key] = data[key];
+        } else if (typeof data[key] === 'boolean') {
+          sanitized[key] = data[key];
+        }
+      }
+    }
+    return { valid: true, sanitized };
+  }
+
+  return { valid: false, sanitized: null };
 }
 
 app.prepare().then(() => {
@@ -53,9 +91,9 @@ app.prepare().then(() => {
     },
   });
 
-  // Helper function to get or create room (fixed race condition)
+  // Helper function to get or create room (uses shared registry)
   function getRoom(roomCode) {
-    let room = rooms.get(roomCode);
+    let room = sharedRooms.get(roomCode);
     if (!room) {
       room = {
         code: roomCode,
@@ -69,8 +107,9 @@ app.prepare().then(() => {
         },
         displaySocketId: null,
         lastActivity: Date.now(),
+        createdAt: new Date(),
       };
-      rooms.set(roomCode, room);
+      sharedRooms.set(roomCode, room);
     }
     // Update last activity timestamp
     room.lastActivity = Date.now();
@@ -82,21 +121,23 @@ app.prepare().then(() => {
     const now = Date.now();
     let cleanedCount = 0;
 
-    for (const [code, room] of rooms.entries()) {
+    for (const [code, room] of sharedRooms.entries()) {
       // Check if room has been idle for too long
       const isIdle = (now - room.lastActivity) > ROOM_IDLE_TIMEOUT;
       // Check if room is empty (no connected players and no display)
       const isEmpty = room.players.every(p => !p.isConnected) && !room.displaySocketId;
+      // Add buffer to prevent race condition with joining players
+      const hasNoRecentActivity = (now - room.lastActivity) > ROOM_CLEANUP_BUFFER;
 
-      if (isIdle && isEmpty) {
-        rooms.delete(code);
+      if (isIdle && isEmpty && hasNoRecentActivity) {
+        sharedRooms.remove(code);
         cleanedCount++;
         console.log(`🧹 Cleaned up idle room: ${code}`);
       }
     }
 
     if (cleanedCount > 0) {
-      console.log(`🧹 Cleaned up ${cleanedCount} idle room(s). Active rooms: ${rooms.size}`);
+      console.log(`🧹 Cleaned up ${cleanedCount} idle room(s). Active rooms: ${sharedRooms.size()}`);
     }
   }
 
@@ -111,7 +152,7 @@ app.prepare().then(() => {
 
   // Helper function to broadcast game state to all clients in a room
   function broadcastGameState(roomCode) {
-    const room = rooms.get(roomCode);
+    const room = sharedRooms.get(roomCode);
     if (!room) return;
 
     // Update players in game state
@@ -171,9 +212,9 @@ app.prepare().then(() => {
         player.socketId = socket.id;
         player.isConnected = true;
       } else {
-        // New player
+        // New player - use crypto.randomUUID() for secure unique IDs
         player = {
-          id: `player_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          id: crypto.randomUUID(),
           name: sanitizedName,
           roomCode: upperRoomCode,
           score: 0,
@@ -205,7 +246,7 @@ app.prepare().then(() => {
       const roomCode = socket.data.roomCode;
       if (!roomCode) return;
 
-      const room = rooms.get(roomCode);
+      const room = sharedRooms.get(roomCode);
       if (!room) return;
 
       // If it's a player
@@ -232,9 +273,10 @@ app.prepare().then(() => {
     socket.on('game:start', ({ roomCode, gameType }) => {
       console.log(`🎮 Starting game "${gameType}" in room ${roomCode}`);
 
-      const room = rooms.get(roomCode);
+      const room = sharedRooms.get(roomCode);
       if (!room) {
         console.error(`❌ Room ${roomCode} not found`);
+        socket.emit('player:error', { message: 'Room not found' });
         return;
       }
 
@@ -247,12 +289,28 @@ app.prepare().then(() => {
       broadcastGameState(roomCode);
     });
 
-    // Generic player submission
+    // Generic player submission with validation
     socket.on('player:submit', ({ roomCode, data }) => {
-      console.log(`📝 Player submission in room ${roomCode}:`, data);
+      // Validate room code
+      if (!isValidRoomCode(roomCode)) {
+        socket.emit('player:error', { message: 'Invalid room code' });
+        return;
+      }
 
-      const room = rooms.get(roomCode);
-      if (!room) return;
+      // Validate and sanitize submission data
+      const { valid, sanitized } = validatePayloadData(data);
+      if (!valid) {
+        socket.emit('player:error', { message: 'Invalid submission data' });
+        return;
+      }
+
+      console.log(`📝 Player submission in room ${roomCode}:`, sanitized);
+
+      const room = sharedRooms.get(roomCode);
+      if (!room) {
+        socket.emit('player:error', { message: 'Room not found' });
+        return;
+      }
 
       // Store submission in game state (game-specific logic will go here)
       if (!room.gameState.submissions) {
@@ -262,7 +320,7 @@ app.prepare().then(() => {
       room.gameState.submissions.push({
         playerId: socket.data.playerId,
         playerName: socket.data.playerName,
-        data,
+        data: sanitized,
         timestamp: Date.now(),
       });
 
@@ -270,12 +328,28 @@ app.prepare().then(() => {
       broadcastGameState(roomCode);
     });
 
-    // Generic player vote
+    // Generic player vote with validation
     socket.on('player:vote', ({ roomCode, data }) => {
-      console.log(`🗳️ Player vote in room ${roomCode}:`, data);
+      // Validate room code
+      if (!isValidRoomCode(roomCode)) {
+        socket.emit('player:error', { message: 'Invalid room code' });
+        return;
+      }
 
-      const room = rooms.get(roomCode);
-      if (!room) return;
+      // Validate and sanitize vote data
+      const { valid, sanitized } = validatePayloadData(data);
+      if (!valid) {
+        socket.emit('player:error', { message: 'Invalid vote data' });
+        return;
+      }
+
+      console.log(`🗳️ Player vote in room ${roomCode}:`, sanitized);
+
+      const room = sharedRooms.get(roomCode);
+      if (!room) {
+        socket.emit('player:error', { message: 'Room not found' });
+        return;
+      }
 
       // Store vote in game state (game-specific logic will go here)
       if (!room.gameState.votes) {
@@ -285,7 +359,7 @@ app.prepare().then(() => {
       room.gameState.votes.push({
         playerId: socket.data.playerId,
         playerName: socket.data.playerName,
-        data,
+        data: sanitized,
         timestamp: Date.now(),
       });
 
