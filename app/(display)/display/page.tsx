@@ -1,44 +1,68 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useWebSocket } from '@/lib/context/WebSocketContext';
 import { RoomLobby } from '@/components/display/RoomLobby';
 import { GameBoard } from '@/components/display/GameBoard';
 import { Leaderboard } from '@/components/display/Leaderboard';
 
-export default function DisplayPage() {
+function DisplayContent() {
+  const searchParams = useSearchParams();
+  const gameType = searchParams.get('game');
   const { gameState, emit, isConnected } = useWebSocket();
   const [roomCode, setRoomCode] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
+  const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string>('');
 
+  // Refs to prevent duplicate operations (persists across re-renders and strict mode)
+  const hasCreatedRoom = useRef(false);
+  const hasJoinedRoom = useRef(false);
+
+  // Create room once on mount - uses both ref and state for robust race condition prevention
   useEffect(() => {
-    // Create room when display loads
+    // Skip if already created or currently creating
+    if (hasCreatedRoom.current || isCreating) return;
+    hasCreatedRoom.current = true;
+    setIsCreating(true);
+
     const createRoom = async () => {
       try {
-        const response = await fetch('/api/rooms/create', { method: 'POST' });
-        if (!response.ok) throw new Error('Failed to create room');
+        const response = await fetch('/api/rooms/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ gameType }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Failed to create room');
+        }
 
         const data = await response.json();
         setRoomCode(data.code);
-
-        // Try to join via WebSocket if connected
-        if (isConnected) {
-          emit({ type: 'display:join', payload: { roomCode: data.code } });
-        }
-
         setIsLoading(false);
-      } catch (error) {
-        console.error('Error creating room:', error);
-        setError('Failed to create room. Please refresh the page.');
+      } catch (err) {
+        console.error('Error creating room:', err);
+        const message = err instanceof Error ? err.message : 'Failed to create room';
+        setError(`${message}. Please refresh the page.`);
         setIsLoading(false);
+      } finally {
+        setIsCreating(false);
       }
     };
 
-    // Create room immediately, don't wait for WebSocket
-    // WebSocket connection can happen in parallel
     createRoom();
-  }, [emit, isConnected]);
+  }, [gameType, isCreating]);
+
+  // Join room via WebSocket when connected and room is ready
+  useEffect(() => {
+    if (isConnected && roomCode && !hasJoinedRoom.current) {
+      hasJoinedRoom.current = true;
+      emit({ type: 'display:join', payload: { roomCode } });
+    }
+  }, [isConnected, roomCode, emit]);
 
   if (error) {
     return (
@@ -90,5 +114,24 @@ export default function DisplayPage() {
         <Leaderboard players={gameState.players} />
       )}
     </>
+  );
+}
+
+export default function DisplayPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex flex-col items-center justify-center h-screen text-white">
+          <div className="text-6xl font-black mb-8 animate-pulse">
+            localhost:party
+          </div>
+          <div className="text-3xl opacity-80">
+            Loading...
+          </div>
+        </div>
+      }
+    >
+      <DisplayContent />
+    </Suspense>
   );
 }

@@ -6,7 +6,7 @@ const sharedRooms = require('./shared-rooms');
 // Room store that delegates to the shared registry
 // This ensures API routes and WebSocket server share the same room state
 export const roomStore = {
-  create: (code: string): Room => {
+  create: (code: string, gameType: string | null = null): Room => {
     // Check if room already exists
     const existing = sharedRooms.get(code);
     if (existing) {
@@ -24,7 +24,7 @@ export const roomStore = {
       players: [],
       gameState: {
         roomCode: code,
-        gameType: null,
+        gameType,
         currentRound: 0,
         phase: 'lobby',
         players: [],
