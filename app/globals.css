@@ -1,26 +1,309 @@
+/* Import distinctive fonts - must come first */
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Space+Mono:wght@400;700&display=swap');
+
 @import "tailwindcss";
 
+/* Arcade Noir Theme - localhost:party */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Core palette */
+  --noir-black: #0a0a0f;
+  --noir-darker: #12121a;
+  --noir-dark: #1a1a2e;
+  --noir-medium: #252540;
+
+  /* Neon accents */
+  --neon-cyan: #00f5ff;
+  --neon-magenta: #ff00aa;
+  --neon-yellow: #f0ff00;
+  --neon-green: #00ff88;
+  --neon-orange: #ff6600;
+
+  /* Glow variants */
+  --glow-cyan: 0 0 20px rgba(0, 245, 255, 0.5), 0 0 40px rgba(0, 245, 255, 0.3), 0 0 60px rgba(0, 245, 255, 0.1);
+  --glow-magenta: 0 0 20px rgba(255, 0, 170, 0.5), 0 0 40px rgba(255, 0, 170, 0.3), 0 0 60px rgba(255, 0, 170, 0.1);
+  --glow-yellow: 0 0 20px rgba(240, 255, 0, 0.5), 0 0 40px rgba(240, 255, 0, 0.3), 0 0 60px rgba(240, 255, 0, 0.1);
+
+  /* Typography */
+  --font-display: 'Orbitron', sans-serif;
+  --font-mono: 'Space Mono', monospace;
+
+  /* Backgrounds */
+  --background: var(--noir-black);
+  --foreground: #ffffff;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-mono);
+  --font-mono: var(--font-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* Base body styles */
+body {
+  background: var(--noir-black);
+  color: var(--foreground);
+  font-family: var(--font-mono);
+}
+
+/* Scanline overlay effect */
+.scanlines::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.1) 2px,
+    rgba(0, 0, 0, 0.1) 4px
+  );
+  pointer-events: none;
+  z-index: 100;
+}
+
+/* CRT screen curve effect */
+.crt-curve {
+  box-shadow:
+    inset 0 0 100px rgba(0, 0, 0, 0.5),
+    inset 0 0 50px rgba(0, 0, 0, 0.3);
+}
+
+/* Grid background pattern */
+.grid-pattern {
+  background-image:
+    linear-gradient(rgba(0, 245, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 245, 255, 0.03) 1px, transparent 1px);
+  background-size: 50px 50px;
+}
+
+/* Neon text effects */
+.neon-text-cyan {
+  color: var(--neon-cyan);
+  text-shadow: var(--glow-cyan);
+}
+
+.neon-text-magenta {
+  color: var(--neon-magenta);
+  text-shadow: var(--glow-magenta);
+}
+
+.neon-text-yellow {
+  color: var(--neon-yellow);
+  text-shadow: var(--glow-yellow);
+}
+
+/* Neon border effect */
+.neon-border-cyan {
+  border: 2px solid var(--neon-cyan);
+  box-shadow:
+    var(--glow-cyan),
+    inset 0 0 20px rgba(0, 245, 255, 0.1);
+}
+
+.neon-border-magenta {
+  border: 2px solid var(--neon-magenta);
+  box-shadow:
+    var(--glow-magenta),
+    inset 0 0 20px rgba(255, 0, 170, 0.1);
+}
+
+/* Animated neon pulse */
+@keyframes neon-pulse {
+  0%, 100% {
+    opacity: 1;
+    filter: brightness(1);
+  }
+  50% {
+    opacity: 0.8;
+    filter: brightness(1.2);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@keyframes neon-flicker {
+  0%, 19%, 21%, 23%, 25%, 54%, 56%, 100% {
+    opacity: 1;
+  }
+  20%, 24%, 55% {
+    opacity: 0.6;
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes glow-pulse {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(0, 245, 255, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(0, 245, 255, 0.6), 0 0 60px rgba(0, 245, 255, 0.3);
+  }
+}
+
+/* Utility classes for animations */
+.animate-neon-pulse {
+  animation: neon-pulse 2s ease-in-out infinite;
+}
+
+.animate-neon-flicker {
+  animation: neon-flicker 3s linear infinite;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.5s ease-out forwards;
+}
+
+.animate-glow-pulse {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+/* Arcade button style */
+.arcade-button {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  border: 3px solid currentColor;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.arcade-button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.arcade-button:hover::before {
+  opacity: 0.1;
+}
+
+.arcade-button:active {
+  transform: scale(0.95);
+}
+
+/* Player card arcade style */
+.player-card {
+  background: linear-gradient(135deg, var(--noir-dark) 0%, var(--noir-darker) 100%);
+  border: 1px solid rgba(0, 245, 255, 0.2);
+  position: relative;
+  overflow: hidden;
+}
+
+.player-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--neon-cyan), transparent);
+}
+
+/* Input field arcade style */
+.arcade-input {
+  background: var(--noir-darker);
+  border: 2px solid var(--noir-medium);
+  color: white;
+  font-family: var(--font-mono);
+  transition: all 0.2s ease;
+}
+
+.arcade-input:focus {
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 20px rgba(0, 245, 255, 0.2);
+  outline: none;
+}
+
+.arcade-input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+/* QR code container */
+.qr-container {
+  background: white;
+  padding: 1rem;
+  position: relative;
+}
+
+.qr-container::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  background: linear-gradient(45deg, var(--neon-cyan), var(--neon-magenta), var(--neon-yellow));
+  z-index: -1;
+  border-radius: inherit;
+}
+
+/* Room code display */
+.room-code {
+  font-family: var(--font-display);
+  font-weight: 900;
+  letter-spacing: 0.3em;
+  color: var(--neon-yellow);
+  text-shadow: var(--glow-yellow);
+}
+
+/* Decorative corner brackets */
+.corner-brackets {
+  position: relative;
+}
+
+.corner-brackets::before,
+.corner-brackets::after {
+  content: '';
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border-color: var(--neon-cyan);
+  border-style: solid;
+}
+
+.corner-brackets::before {
+  top: 0;
+  left: 0;
+  border-width: 2px 0 0 2px;
+}
+
+.corner-brackets::after {
+  bottom: 0;
+  right: 0;
+  border-width: 0 2px 2px 0;
 }

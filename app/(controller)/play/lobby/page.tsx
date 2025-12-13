@@ -12,6 +12,9 @@ function PlayerLobbyContent() {
   const roomCode = searchParams.get('code')?.toUpperCase();
   const [playerName, setPlayerName] = useState('');
 
+  // Player avatars - arcade/gaming themed
+  const avatars = ['⚡', '🎮', '👾', '🕹️', '🎯', '🔥', '💎', '🚀'];
+
   useEffect(() => {
     // Get player name from localStorage
     const savedName = localStorage.getItem('playerName');
@@ -40,129 +43,201 @@ function PlayerLobbyContent() {
 
   if (!roomCode) {
     return (
-      <div className="flex items-center justify-center min-h-screen text-white text-2xl">
-        No room code provided
+      <div className="flex items-center justify-center min-h-screen">
+        <p className="text-white/40" style={{ fontFamily: 'var(--font-mono)' }}>
+          No room code provided
+        </p>
       </div>
     );
   }
 
   if (!gameState) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen text-white">
-        <div className="text-4xl font-bold mb-4 animate-pulse">
-          Joining room...
+      <div className="flex flex-col items-center justify-center min-h-screen">
+        <div className="text-5xl mb-6 animate-float">👾</div>
+        <div
+          className="text-xl mb-2 animate-pulse"
+          style={{ fontFamily: 'var(--font-display)', color: 'var(--neon-cyan)' }}
+        >
+          JOINING ROOM
         </div>
-        <div className="text-xl opacity-80">Room {roomCode}</div>
+        <div className="room-code text-3xl">{roomCode}</div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col min-h-screen p-6 text-white">
+    <div className="flex flex-col min-h-screen p-5">
       {/* Header */}
-      <div className="text-center mb-8">
-        <h1 className="text-5xl font-black mb-2">Room {roomCode}</h1>
-        <p className="text-xl opacity-80">
-          {currentPlayer ? `Welcome, ${currentPlayer.name}!` : 'Waiting for players...'}
-        </p>
+      <div className="text-center mb-6">
+        <div className="flex items-center justify-center gap-2 mb-1">
+          <span className="text-sm text-white/40" style={{ fontFamily: 'var(--font-mono)' }}>ROOM</span>
+          <span className="room-code text-2xl">{roomCode}</span>
+        </div>
+        {currentPlayer && (
+          <p style={{ fontFamily: 'var(--font-mono)', color: 'var(--neon-green)' }}>
+            Welcome, {currentPlayer.name}!
+          </p>
+        )}
       </div>
 
       {/* Connection Status */}
       {!isConnected && (
-        <div className="mb-6 bg-yellow-500/20 border-2 border-yellow-500 text-white px-4 py-3 rounded-xl text-center">
+        <div
+          className="mb-4 flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm"
+          style={{
+            background: 'rgba(240, 255, 0, 0.1)',
+            border: '1px solid var(--neon-yellow)',
+            color: 'var(--neon-yellow)',
+            fontFamily: 'var(--font-mono)'
+          }}
+        >
+          <div className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: 'var(--neon-yellow)' }} />
           Reconnecting...
         </div>
       )}
 
-      {/* Player Count */}
-      <div className="text-center mb-6">
-        <div className="inline-block bg-white/20 backdrop-blur-sm rounded-2xl px-8 py-4">
-          <div className="text-3xl font-bold">
-            {gameState.players.length} {gameState.players.length === 1 ? 'Player' : 'Players'}
-          </div>
+      {/* Player Count Badge */}
+      <div className="flex justify-center mb-6">
+        <div
+          className="px-6 py-3 rounded-lg"
+          style={{
+            background: 'var(--noir-dark)',
+            border: '1px solid rgba(0, 245, 255, 0.2)'
+          }}
+        >
+          <span
+            className="text-2xl font-bold"
+            style={{ fontFamily: 'var(--font-display)', color: 'var(--neon-cyan)' }}
+          >
+            {gameState.players.length}
+          </span>
+          <span className="text-white/40 ml-2" style={{ fontFamily: 'var(--font-mono)' }}>
+            {gameState.players.length === 1 ? 'PLAYER' : 'PLAYERS'}
+          </span>
         </div>
       </div>
 
       {/* Player List */}
       <div className="flex-1 space-y-3 mb-6 overflow-y-auto">
         {gameState.players.length === 0 ? (
-          <div className="text-center text-xl opacity-60 py-12">
-            No players yet. Scan the QR code on the TV to join!
+          <div className="text-center py-12">
+            <div className="text-4xl mb-4 animate-float">👾</div>
+            <p className="text-white/40" style={{ fontFamily: 'var(--font-mono)' }}>
+              No players yet...
+            </p>
           </div>
         ) : (
-          gameState.players.map((player, index) => (
-            <div
-              key={player.id}
-              className={`p-5 rounded-xl transition-all ${
-                player.name === playerName
-                  ? 'bg-yellow-400 text-gray-900 scale-105'
-                  : 'bg-white/10 backdrop-blur-sm'
-              }`}
-              style={{
-                animation: `slideIn 0.3s ease-out ${index * 0.05}s both`
-              }}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="text-3xl">
-                    {['🎮', '🎯', '🎲', '🎪', '🎨', '🎭', '🎸', '🎤'][index % 8]}
-                  </div>
-                  <div>
-                    <div className="text-xl font-bold">{player.name}</div>
-                    <div className={`text-sm ${player.name === playerName ? 'text-gray-700' : 'opacity-60'}`}>
-                      {player.score} points
+          gameState.players.map((player, index) => {
+            const isCurrentPlayer = player.name === playerName;
+            return (
+              <div
+                key={player.id}
+                className={`player-card p-4 rounded-xl animate-slide-up ${isCurrentPlayer ? 'neon-border-cyan' : ''}`}
+                style={{
+                  animationDelay: `${index * 0.05}s`
+                }}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    {/* Avatar */}
+                    <div
+                      className="text-2xl animate-float"
+                      style={{ animationDelay: `${index * 0.2}s` }}
+                    >
+                      {avatars[index % avatars.length]}
+                    </div>
+
+                    {/* Name & Score */}
+                    <div>
+                      <div
+                        className="font-bold"
+                        style={{
+                          fontFamily: 'var(--font-display)',
+                          color: isCurrentPlayer ? 'var(--neon-cyan)' : 'white'
+                        }}
+                      >
+                        {player.name}
+                      </div>
+                      <div className="text-xs text-white/40" style={{ fontFamily: 'var(--font-mono)' }}>
+                        {player.score} PTS
+                      </div>
                     </div>
                   </div>
+
+                  {/* You badge or connection status */}
+                  {isCurrentPlayer ? (
+                    <span
+                      className="text-xs px-3 py-1 rounded-full"
+                      style={{
+                        background: 'var(--neon-cyan)',
+                        color: 'var(--noir-black)',
+                        fontFamily: 'var(--font-display)'
+                      }}
+                    >
+                      YOU
+                    </span>
+                  ) : (
+                    <div className="flex items-center gap-1">
+                      <div
+                        className="w-2 h-2 rounded-full"
+                        style={{
+                          backgroundColor: player.isConnected ? 'var(--neon-green)' : 'var(--neon-orange)',
+                          boxShadow: player.isConnected
+                            ? '0 0 8px rgba(0, 255, 136, 0.5)'
+                            : '0 0 8px rgba(255, 102, 0, 0.5)'
+                        }}
+                      />
+                    </div>
+                  )}
                 </div>
-                {player.name === playerName && (
-                  <span className="text-sm font-bold bg-gray-900 text-yellow-400 px-3 py-1 rounded-full">
-                    YOU
-                  </span>
-                )}
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
-      {/* Game Status */}
-      {gameState.players.length < 2 && (
-        <div className="mb-6 text-center">
-          <div className="bg-blue-500/20 border-2 border-blue-500 text-white px-4 py-3 rounded-xl">
-            <p className="font-bold mb-1">Waiting for more players</p>
-            <p className="text-sm opacity-80">Need at least 2 players to start</p>
-          </div>
+      {/* Game Status / Start Button */}
+      {gameState.players.length < 2 ? (
+        <div
+          className="mb-4 px-4 py-4 rounded-xl text-center"
+          style={{
+            background: 'rgba(240, 255, 0, 0.05)',
+            border: '1px solid rgba(240, 255, 0, 0.2)'
+          }}
+        >
+          <p style={{ fontFamily: 'var(--font-mono)', color: 'var(--neon-yellow)' }}>
+            Waiting for more players...
+          </p>
+          <p className="text-xs text-white/30 mt-1" style={{ fontFamily: 'var(--font-mono)' }}>
+            Need at least 2 to start
+          </p>
         </div>
-      )}
-
-      {/* Start Game Button */}
-      {gameState.players.length >= 2 && (
+      ) : (
         <button
           onClick={handleStartGame}
           disabled={!isConnected}
-          className="w-full py-6 text-2xl font-bold bg-green-500 text-white rounded-xl hover:bg-green-400 active:scale-95 transition-transform shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+          className="arcade-button w-full py-5 rounded-xl disabled:opacity-30 disabled:cursor-not-allowed animate-glow-pulse"
+          style={{
+            fontFamily: 'var(--font-display)',
+            color: 'var(--neon-green)',
+            borderColor: 'var(--neon-green)',
+            fontSize: '1.25rem'
+          }}
         >
-          🎮 Start Game
+          <span className="flex items-center justify-center gap-3">
+            <span>🎮</span>
+            START GAME
+          </span>
         </button>
       )}
 
-      {/* Instructions */}
-      <div className="mt-6 text-center text-white/60 text-sm">
-        <p>More players can join by scanning the QR code on the TV</p>
+      {/* Footer */}
+      <div className="mt-4 text-center">
+        <p className="text-xs text-white/20" style={{ fontFamily: 'var(--font-mono)' }}>
+          More players can join via QR code on TV
+        </p>
       </div>
-
-      <style jsx>{`
-        @keyframes slideIn {
-          from {
-            opacity: 0;
-            transform: translateY(20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-      `}</style>
     </div>
   );
 }
@@ -170,8 +245,13 @@ function PlayerLobbyContent() {
 export default function PlayerLobbyPage() {
   return (
     <Suspense fallback={
-      <div className="flex items-center justify-center min-h-screen text-white text-2xl">
-        Loading...
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="text-4xl mb-4 animate-float">👾</div>
+          <p className="neon-text-cyan" style={{ fontFamily: 'var(--font-mono)' }}>
+            Loading...
+          </p>
+        </div>
       </div>
     }>
       <PlayerLobbyContent />
