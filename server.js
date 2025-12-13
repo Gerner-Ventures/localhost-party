@@ -14,6 +14,26 @@ const handle = app.getRequestHandler();
 const rooms = new Map();
 const playerSockets = new Map(); // socketId -> player info
 
+// Room cleanup settings
+const ROOM_IDLE_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+const ROOM_CLEANUP_INTERVAL = 5 * 60 * 1000; // Check every 5 minutes
+
+// Sanitize player name on the server side
+function sanitizePlayerName(name) {
+  if (typeof name !== 'string') return '';
+  return name
+    .trim()
+    .replace(/[<>'"&]/g, '') // Remove potentially dangerous characters
+    .replace(/\s+/g, ' ')     // Normalize whitespace
+    .slice(0, 20);            // Enforce max length
+}
+
+// Validate room code format
+function isValidRoomCode(code) {
+  if (typeof code !== 'string') return false;
+  return /^[A-Z]{4}$/.test(code);
+}
+
 app.prepare().then(() => {
   const httpServer = createServer(async (req, res) => {
     try {
@@ -33,10 +53,11 @@ app.prepare().then(() => {
     },
   });
 
-  // Helper function to get or create room
+  // Helper function to get or create room (fixed race condition)
   function getRoom(roomCode) {
-    if (!rooms.has(roomCode)) {
-      rooms.set(roomCode, {
+    let room = rooms.get(roomCode);
+    if (!room) {
+      room = {
         code: roomCode,
         players: [],
         gameState: {
@@ -47,10 +68,46 @@ app.prepare().then(() => {
           players: [],
         },
         displaySocketId: null,
-      });
+        lastActivity: Date.now(),
+      };
+      rooms.set(roomCode, room);
     }
-    return rooms.get(roomCode);
+    // Update last activity timestamp
+    room.lastActivity = Date.now();
+    return room;
   }
+
+  // Room cleanup: remove idle rooms to prevent memory leaks
+  function cleanupIdleRooms() {
+    const now = Date.now();
+    let cleanedCount = 0;
+
+    for (const [code, room] of rooms.entries()) {
+      // Check if room has been idle for too long
+      const isIdle = (now - room.lastActivity) > ROOM_IDLE_TIMEOUT;
+      // Check if room is empty (no connected players and no display)
+      const isEmpty = room.players.every(p => !p.isConnected) && !room.displaySocketId;
+
+      if (isIdle && isEmpty) {
+        rooms.delete(code);
+        cleanedCount++;
+        console.log(`🧹 Cleaned up idle room: ${code}`);
+      }
+    }
+
+    if (cleanedCount > 0) {
+      console.log(`🧹 Cleaned up ${cleanedCount} idle room(s). Active rooms: ${rooms.size}`);
+    }
+  }
+
+  // Start room cleanup interval
+  const cleanupInterval = setInterval(cleanupIdleRooms, ROOM_CLEANUP_INTERVAL);
+
+  // Cleanup on server shutdown
+  process.on('SIGTERM', () => {
+    clearInterval(cleanupInterval);
+    process.exit(0);
+  });
 
   // Helper function to broadcast game state to all clients in a room
   function broadcastGameState(roomCode) {
@@ -86,12 +143,28 @@ app.prepare().then(() => {
 
     // Player joins a room
     socket.on('player:join', ({ roomCode, name }) => {
-      console.log(`🎮 Player "${name}" joining room: ${roomCode}`);
+      // Validate and sanitize inputs
+      const sanitizedName = sanitizePlayerName(name);
+      const upperRoomCode = typeof roomCode === 'string' ? roomCode.toUpperCase() : '';
 
-      const room = getRoom(roomCode);
+      if (!isValidRoomCode(upperRoomCode)) {
+        console.warn(`⚠️ Invalid room code format: ${roomCode}`);
+        socket.emit('player:error', { message: 'Invalid room code format' });
+        return;
+      }
+
+      if (!sanitizedName || sanitizedName.length < 1) {
+        console.warn(`⚠️ Invalid player name: ${name}`);
+        socket.emit('player:error', { message: 'Invalid player name' });
+        return;
+      }
+
+      console.log(`🎮 Player "${sanitizedName}" joining room: ${upperRoomCode}`);
+
+      const room = getRoom(upperRoomCode);
 
       // Check if player already exists (reconnection)
-      let player = room.players.find((p) => p.name === name);
+      let player = room.players.find((p) => p.name === sanitizedName);
 
       if (player) {
         // Reconnection: update socket ID
@@ -101,8 +174,8 @@ app.prepare().then(() => {
         // New player
         player = {
           id: `player_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          name,
-          roomCode,
+          name: sanitizedName,
+          roomCode: upperRoomCode,
           score: 0,
           isConnected: true,
           socketId: socket.id,
@@ -111,18 +184,18 @@ app.prepare().then(() => {
       }
 
       // Store player info with socket
-      socket.join(roomCode);
-      socket.data.roomCode = roomCode;
+      socket.join(upperRoomCode);
+      socket.data.roomCode = upperRoomCode;
       socket.data.playerId = player.id;
-      socket.data.playerName = name;
+      socket.data.playerName = sanitizedName;
       playerSockets.set(socket.id, player);
 
       // Broadcast updated game state
-      broadcastGameState(roomCode);
+      broadcastGameState(upperRoomCode);
 
-      // Send welcome message to the player
+      // Send confirmation to the player
       socket.emit('player:joined', player);
-      console.log(`✅ Player "${name}" joined room ${roomCode}`);
+      console.log(`✅ Player "${sanitizedName}" joined room ${upperRoomCode}`);
     });
 
     // Player or display leaves
