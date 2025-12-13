@@ -9,7 +9,9 @@ export async function GET(
     const { code } = await params;
     const upperCode = code.toUpperCase();
 
+    console.log(`🔍 Looking for room: ${upperCode}`);
     const room = roomStore.get(upperCode);
+    console.log(`🔍 Room lookup result:`, room ? `Found (${room.code})` : 'Not found');
 
     if (!room) {
       return NextResponse.json(

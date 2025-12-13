@@ -1,12 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useWebSocket } from '@/lib/context/WebSocketContext';
 import { RoomLobby } from '@/components/display/RoomLobby';
 import { GameBoard } from '@/components/display/GameBoard';
 import { Leaderboard } from '@/components/display/Leaderboard';
 
-export default function DisplayPage() {
+function DisplayContent() {
+  const searchParams = useSearchParams();
+  const gameType = searchParams.get('game');
   const { gameState, emit, isConnected } = useWebSocket();
   const [roomCode, setRoomCode] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
@@ -16,7 +19,11 @@ export default function DisplayPage() {
     // Create room when display loads
     const createRoom = async () => {
       try {
-        const response = await fetch('/api/rooms/create', { method: 'POST' });
+        const response = await fetch('/api/rooms/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ gameType }),
+        });
         if (!response.ok) throw new Error('Failed to create room');
 
         const data = await response.json();
@@ -38,7 +45,7 @@ export default function DisplayPage() {
     // Create room immediately, don't wait for WebSocket
     // WebSocket connection can happen in parallel
     createRoom();
-  }, [emit, isConnected]);
+  }, [emit, isConnected, gameType]);
 
   if (error) {
     return (
@@ -90,5 +97,24 @@ export default function DisplayPage() {
         <Leaderboard players={gameState.players} />
       )}
     </>
+  );
+}
+
+export default function DisplayPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex flex-col items-center justify-center h-screen text-white">
+          <div className="text-6xl font-black mb-8 animate-pulse">
+            localhost:party
+          </div>
+          <div className="text-3xl opacity-80">
+            Loading...
+          </div>
+        </div>
+      }
+    >
+      <DisplayContent />
+    </Suspense>
   );
 }

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { roomStore } from "@/lib/store";
 
 const MAX_CODE_GENERATION_ATTEMPTS = 100;
@@ -28,14 +28,26 @@ function generateRoomCode(attempt: number = 0): string {
   return code;
 }
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
+    // Parse optional game type from request body
+    let gameType: string | null = null;
+    try {
+      const body = await request.json();
+      gameType = body.gameType || null;
+    } catch {
+      // No body or invalid JSON, proceed without game type
+    }
+
     const code = generateRoomCode();
-    const room = roomStore.create(code);
+    const room = roomStore.create(code, gameType);
+
+    console.log(`🎉 Room created: ${code} (gameType: ${gameType})`);
 
     return NextResponse.json({
       code: room.code,
       id: room.id,
+      gameType,
     });
   } catch (error) {
     console.error("Error creating room:", error);
