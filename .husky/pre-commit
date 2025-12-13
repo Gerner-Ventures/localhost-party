@@ -1,0 +1,5 @@
+# Format and lint staged files
+npx lint-staged
+
+# Type check entire project (fast with incremental builds)
+npm run type-check

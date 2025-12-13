@@ -1,0 +1,5 @@
+# Ensure the project builds
+npm run build
+
+# Run tests if you have them
+# npm test
