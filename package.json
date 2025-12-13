@@ -3,9 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node server.js",
+    "dev:next": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "NODE_ENV=production node server.js",
+    "start:next": "next start",
     "lint": "eslint"
   },
   "dependencies": {
@@ -15,6 +17,7 @@
     "ai": "^5.0.113",
     "next": "16.0.10",
     "prisma": "^7.1.0",
+    "qrcode.react": "^4.2.0",
     "react": "19.2.1",
     "react-dom": "19.2.1",
     "socket.io": "^4.8.1",
