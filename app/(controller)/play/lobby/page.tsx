@@ -1,49 +1,47 @@
-'use client';
+"use client";
 
-import { useEffect, useState, Suspense } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
-import { useWebSocket } from '@/lib/context/WebSocketContext';
+import { useEffect, useState, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { useWebSocket } from "@/lib/context/WebSocketContext";
 
 function PlayerLobbyContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { gameState, emit, isConnected } = useWebSocket();
 
-  const roomCode = searchParams.get('code')?.toUpperCase();
-  const [playerName, setPlayerName] = useState('');
+  const roomCode = searchParams.get("code")?.toUpperCase();
+  // Initialize playerName from localStorage using lazy initializer
+  const [playerName] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("playerName") || "";
+    }
+    return "";
+  });
 
   // Player avatars - arcade/gaming themed
-  const avatars = ['⚡', '🎮', '👾', '🕹️', '🎯', '🔥', '💎', '🚀'];
+  const avatars = ["⚡", "🎮", "👾", "🕹️", "🎯", "🔥", "💎", "🚀"];
 
   useEffect(() => {
-    // Get player name from localStorage
-    const savedName = localStorage.getItem('playerName');
-    if (savedName && !playerName) {
-      setPlayerName(savedName);
-    }
-
     // Redirect if no room code
     if (!roomCode) {
-      router.push('/play');
+      router.push("/play");
     }
-  }, [roomCode, router, playerName]);
+  }, [roomCode, router]);
 
   // Redirect to game controller when game starts
   useEffect(() => {
-    if (gameState && gameState.phase !== 'lobby' && roomCode) {
+    if (gameState && gameState.phase !== "lobby" && roomCode) {
       router.push(`/play/game?code=${roomCode}`);
     }
   }, [gameState, roomCode, router]);
 
-  const currentPlayer = gameState?.players.find(
-    (p) => p.name === playerName
-  );
+  const currentPlayer = gameState?.players.find((p) => p.name === playerName);
 
   const handleStartGame = () => {
     if (roomCode) {
       emit({
-        type: 'game:start',
-        payload: { roomCode, gameType: 'quiplash' }
+        type: "game:start",
+        payload: { roomCode, gameType: "quiplash" },
       });
     }
   };
@@ -51,7 +49,7 @@ function PlayerLobbyContent() {
   if (!roomCode) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <p className="text-white/40" style={{ fontFamily: 'var(--font-mono)' }}>
+        <p className="text-white/40" style={{ fontFamily: "var(--font-mono)" }}>
           No room code provided
         </p>
       </div>
@@ -64,7 +62,10 @@ function PlayerLobbyContent() {
         <div className="text-5xl mb-6 animate-float">👾</div>
         <div
           className="text-xl mb-2 animate-pulse"
-          style={{ fontFamily: 'var(--font-display)', color: 'var(--neon-cyan)' }}
+          style={{
+            fontFamily: "var(--font-display)",
+            color: "var(--neon-cyan)",
+          }}
         >
           JOINING ROOM
         </div>
@@ -78,11 +79,21 @@ function PlayerLobbyContent() {
       {/* Header */}
       <div className="text-center mb-6">
         <div className="flex items-center justify-center gap-2 mb-1">
-          <span className="text-sm text-white/40" style={{ fontFamily: 'var(--font-mono)' }}>ROOM</span>
+          <span
+            className="text-sm text-white/40"
+            style={{ fontFamily: "var(--font-mono)" }}
+          >
+            ROOM
+          </span>
           <span className="room-code text-2xl">{roomCode}</span>
         </div>
         {currentPlayer && (
-          <p style={{ fontFamily: 'var(--font-mono)', color: 'var(--neon-green)' }}>
+          <p
+            style={{
+              fontFamily: "var(--font-mono)",
+              color: "var(--neon-green)",
+            }}
+          >
             Welcome, {currentPlayer.name}!
           </p>
         )}
@@ -93,13 +104,16 @@ function PlayerLobbyContent() {
         <div
           className="mb-4 flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm"
           style={{
-            background: 'rgba(240, 255, 0, 0.1)',
-            border: '1px solid var(--neon-yellow)',
-            color: 'var(--neon-yellow)',
-            fontFamily: 'var(--font-mono)'
+            background: "rgba(240, 255, 0, 0.1)",
+            border: "1px solid var(--neon-yellow)",
+            color: "var(--neon-yellow)",
+            fontFamily: "var(--font-mono)",
           }}
         >
-          <div className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: 'var(--neon-yellow)' }} />
+          <div
+            className="w-2 h-2 rounded-full animate-pulse"
+            style={{ backgroundColor: "var(--neon-yellow)" }}
+          />
           Reconnecting...
         </div>
       )}
@@ -109,18 +123,24 @@ function PlayerLobbyContent() {
         <div
           className="px-6 py-3 rounded-lg"
           style={{
-            background: 'var(--noir-dark)',
-            border: '1px solid rgba(0, 245, 255, 0.2)'
+            background: "var(--noir-dark)",
+            border: "1px solid rgba(0, 245, 255, 0.2)",
           }}
         >
           <span
             className="text-2xl font-bold"
-            style={{ fontFamily: 'var(--font-display)', color: 'var(--neon-cyan)' }}
+            style={{
+              fontFamily: "var(--font-display)",
+              color: "var(--neon-cyan)",
+            }}
           >
             {gameState.players.length}
           </span>
-          <span className="text-white/40 ml-2" style={{ fontFamily: 'var(--font-mono)' }}>
-            {gameState.players.length === 1 ? 'PLAYER' : 'PLAYERS'}
+          <span
+            className="text-white/40 ml-2"
+            style={{ fontFamily: "var(--font-mono)" }}
+          >
+            {gameState.players.length === 1 ? "PLAYER" : "PLAYERS"}
           </span>
         </div>
       </div>
@@ -130,7 +150,10 @@ function PlayerLobbyContent() {
         {gameState.players.length === 0 ? (
           <div className="text-center py-12">
             <div className="text-4xl mb-4 animate-float">👾</div>
-            <p className="text-white/40" style={{ fontFamily: 'var(--font-mono)' }}>
+            <p
+              className="text-white/40"
+              style={{ fontFamily: "var(--font-mono)" }}
+            >
               No players yet...
             </p>
           </div>
@@ -140,9 +163,9 @@ function PlayerLobbyContent() {
             return (
               <div
                 key={player.id}
-                className={`player-card p-4 rounded-xl animate-slide-up ${isCurrentPlayer ? 'neon-border-cyan' : ''}`}
+                className={`player-card p-4 rounded-xl animate-slide-up ${isCurrentPlayer ? "neon-border-cyan" : ""}`}
                 style={{
-                  animationDelay: `${index * 0.05}s`
+                  animationDelay: `${index * 0.05}s`,
                 }}
               >
                 <div className="flex items-center justify-between">
@@ -160,13 +183,16 @@ function PlayerLobbyContent() {
                       <div
                         className="font-bold"
                         style={{
-                          fontFamily: 'var(--font-display)',
-                          color: isCurrentPlayer ? 'var(--neon-cyan)' : 'white'
+                          fontFamily: "var(--font-display)",
+                          color: isCurrentPlayer ? "var(--neon-cyan)" : "white",
                         }}
                       >
                         {player.name}
                       </div>
-                      <div className="text-xs text-white/40" style={{ fontFamily: 'var(--font-mono)' }}>
+                      <div
+                        className="text-xs text-white/40"
+                        style={{ fontFamily: "var(--font-mono)" }}
+                      >
                         {player.score} PTS
                       </div>
                     </div>
@@ -177,9 +203,9 @@ function PlayerLobbyContent() {
                     <span
                       className="text-xs px-3 py-1 rounded-full"
                       style={{
-                        background: 'var(--neon-cyan)',
-                        color: 'var(--noir-black)',
-                        fontFamily: 'var(--font-display)'
+                        background: "var(--neon-cyan)",
+                        color: "var(--noir-black)",
+                        fontFamily: "var(--font-display)",
                       }}
                     >
                       YOU
@@ -189,10 +215,12 @@ function PlayerLobbyContent() {
                       <div
                         className="w-2 h-2 rounded-full"
                         style={{
-                          backgroundColor: player.isConnected ? 'var(--neon-green)' : 'var(--neon-orange)',
+                          backgroundColor: player.isConnected
+                            ? "var(--neon-green)"
+                            : "var(--neon-orange)",
                           boxShadow: player.isConnected
-                            ? '0 0 8px rgba(0, 255, 136, 0.5)'
-                            : '0 0 8px rgba(255, 102, 0, 0.5)'
+                            ? "0 0 8px rgba(0, 255, 136, 0.5)"
+                            : "0 0 8px rgba(255, 102, 0, 0.5)",
                         }}
                       />
                     </div>
@@ -209,14 +237,22 @@ function PlayerLobbyContent() {
         <div
           className="mb-4 px-4 py-4 rounded-xl text-center"
           style={{
-            background: 'rgba(240, 255, 0, 0.05)',
-            border: '1px solid rgba(240, 255, 0, 0.2)'
+            background: "rgba(240, 255, 0, 0.05)",
+            border: "1px solid rgba(240, 255, 0, 0.2)",
           }}
         >
-          <p style={{ fontFamily: 'var(--font-mono)', color: 'var(--neon-yellow)' }}>
+          <p
+            style={{
+              fontFamily: "var(--font-mono)",
+              color: "var(--neon-yellow)",
+            }}
+          >
             Waiting for more players...
           </p>
-          <p className="text-xs text-white/30 mt-1" style={{ fontFamily: 'var(--font-mono)' }}>
+          <p
+            className="text-xs text-white/30 mt-1"
+            style={{ fontFamily: "var(--font-mono)" }}
+          >
             Need at least 2 to start
           </p>
         </div>
@@ -226,10 +262,10 @@ function PlayerLobbyContent() {
           disabled={!isConnected}
           className="arcade-button w-full py-5 rounded-xl disabled:opacity-30 disabled:cursor-not-allowed animate-glow-pulse"
           style={{
-            fontFamily: 'var(--font-display)',
-            color: 'var(--neon-green)',
-            borderColor: 'var(--neon-green)',
-            fontSize: '1.25rem'
+            fontFamily: "var(--font-display)",
+            color: "var(--neon-green)",
+            borderColor: "var(--neon-green)",
+            fontSize: "1.25rem",
           }}
         >
           <span className="flex items-center justify-center gap-3">
@@ -241,7 +277,10 @@ function PlayerLobbyContent() {
 
       {/* Footer */}
       <div className="mt-4 text-center">
-        <p className="text-xs text-white/20" style={{ fontFamily: 'var(--font-mono)' }}>
+        <p
+          className="text-xs text-white/20"
+          style={{ fontFamily: "var(--font-mono)" }}
+        >
           More players can join via QR code on TV
         </p>
       </div>
@@ -251,16 +290,21 @@ function PlayerLobbyContent() {
 
 export default function PlayerLobbyPage() {
   return (
-    <Suspense fallback={
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <div className="text-4xl mb-4 animate-float">👾</div>
-          <p className="neon-text-cyan" style={{ fontFamily: 'var(--font-mono)' }}>
-            Loading...
-          </p>
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center">
+            <div className="text-4xl mb-4 animate-float">👾</div>
+            <p
+              className="neon-text-cyan"
+              style={{ fontFamily: "var(--font-mono)" }}
+            >
+              Loading...
+            </p>
+          </div>
         </div>
-      </div>
-    }>
+      }
+    >
       <PlayerLobbyContent />
     </Suspense>
   );

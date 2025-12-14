@@ -1,5 +1,5 @@
-import { GameState, GamePrompt, GameSubmission } from '../types/game';
-import { Player } from '../types/player';
+import { GameState, GamePrompt, GameSubmission } from "../types/game";
+import { Player } from "../types/player";
 
 // Hardcoded prompts for Quip Clash
 const QUIPLASH_PROMPTS: string[] = [
@@ -53,9 +53,9 @@ export function initializeQuiplashGame(
 
   return {
     roomCode,
-    gameType: 'quiplash',
+    gameType: "quiplash",
     currentRound: 1,
-    phase: 'submit', // Start directly in submit phase so players can answer
+    phase: "submit", // Start directly in submit phase so players can answer
     players,
     prompts,
     submissions: [],
@@ -73,7 +73,8 @@ export function initializeQuiplashGame(
 export function generatePromptsForRound(
   players: Player[],
   roundNumber: number,
-  config: QuiplashConfig
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _config: QuiplashConfig // Reserved for future config options like custom prompts
 ): GamePrompt[] {
   const prompts: GamePrompt[] = [];
   const usedIndices = new Set<number>();
@@ -125,13 +126,16 @@ export function handleSubmission(
   const updatedSubmissions = [...(gameState.submissions || []), newSubmission];
 
   // Check if all players have submitted
-  const allPlayersSubmitted = updatedSubmissions.length === gameState.players.length;
+  const allPlayersSubmitted =
+    updatedSubmissions.length === gameState.players.length;
 
   return {
     ...gameState,
     submissions: updatedSubmissions,
-    phase: allPlayersSubmitted ? 'vote' : gameState.phase,
-    timeRemaining: allPlayersSubmitted ? DEFAULT_QUIPLASH_CONFIG.votingTimeLimit : gameState.timeRemaining,
+    phase: allPlayersSubmitted ? "vote" : gameState.phase,
+    timeRemaining: allPlayersSubmitted
+      ? DEFAULT_QUIPLASH_CONFIG.votingTimeLimit
+      : gameState.timeRemaining,
   };
 }
 
@@ -171,14 +175,16 @@ export function handleVote(
   return {
     ...gameState,
     votes: updatedVotes,
-    phase: allPlayersVoted ? 'results' : gameState.phase,
+    phase: allPlayersVoted ? "results" : gameState.phase,
   };
 }
 
 /**
  * Calculate scores for the current round
  */
-export function calculateRoundScores(gameState: GameState): Record<string, number> {
+export function calculateRoundScores(
+  gameState: GameState
+): Record<string, number> {
   const scores: Record<string, number> = {};
 
   // Initialize all players with 0 points
@@ -226,7 +232,7 @@ export function advanceToNextRound(
       ...gameState,
       players: updatedPlayers,
       roundResults: roundScores,
-      phase: 'results', // Final results
+      phase: "results", // Final results
     };
   }
 
@@ -237,7 +243,7 @@ export function advanceToNextRound(
   return {
     ...gameState,
     currentRound: nextRound,
-    phase: 'prompt',
+    phase: "prompt",
     players: updatedPlayers,
     prompts: newPrompts,
     submissions: [],
@@ -250,13 +256,22 @@ export function advanceToNextRound(
 /**
  * Get the current prompt for a specific player
  */
-export function getPlayerPrompt(gameState: GameState, playerId: string): GamePrompt | null {
-  return gameState.prompts?.find((p) => p.assignedPlayerIds?.includes(playerId)) || null;
+export function getPlayerPrompt(
+  gameState: GameState,
+  playerId: string
+): GamePrompt | null {
+  return (
+    gameState.prompts?.find((p) => p.assignedPlayerIds?.includes(playerId)) ||
+    null
+  );
 }
 
 /**
  * Get all submissions except the player's own (for voting)
  */
-export function getVotingOptions(gameState: GameState, playerId: string): GameSubmission[] {
+export function getVotingOptions(
+  gameState: GameState,
+  playerId: string
+): GameSubmission[] {
   return gameState.submissions?.filter((s) => s.playerId !== playerId) || [];
 }

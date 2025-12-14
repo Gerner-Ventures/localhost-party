@@ -11,6 +11,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  url      = env("LH_PARTY_DATABASE_URL")
 }
 
 // Room represents a game room/lobby

@@ -1,4 +1,11 @@
 // Type definitions for shared-rooms.js
+import type { Player } from "./types/player";
+import type {
+  GameSubmission,
+  GameVote,
+  GameType,
+  GamePhase,
+} from "./types/game";
 
 export interface SharedRoom {
   code: string;
@@ -12,12 +19,12 @@ export interface SharedRoom {
   }>;
   gameState: {
     roomCode: string;
-    gameType: string | null;
+    gameType: GameType | null;
     currentRound: number;
-    phase: string;
-    players: Array<any>;
-    submissions?: Array<any>;
-    votes?: Array<any>;
+    phase: GamePhase;
+    players: Player[];
+    submissions?: GameSubmission[];
+    votes?: GameVote[];
   };
   displaySocketId: string | null;
   lastActivity: number;

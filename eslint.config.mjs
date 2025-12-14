@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Generated files - should not be linted
+    "lib/generated/**",
+    // Standalone WebSocket server (JavaScript, not part of Next.js)
+    "websocket-server/**",
   ]),
 ]);
 

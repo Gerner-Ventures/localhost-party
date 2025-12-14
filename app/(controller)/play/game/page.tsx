@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, Suspense } from "react";
+import { useEffect, useState, useMemo, useRef, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useWebSocket } from "@/lib/context/WebSocketContext";
 import { getPlayerPrompt, getVotingOptions } from "@/lib/games/quiplash";
@@ -39,11 +39,16 @@ function GameControllerContent() {
     return gameState.votes.some((v) => v.playerId === currentPlayer.id);
   }, [gameState, currentPlayer]);
 
-  // Reset submission text when round changes
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSubmissionText("");
-  }, [gameState?.currentRound]);
+  // Track previous round to reset form when round changes
+  const previousRoundRef = useRef(gameState?.currentRound);
+  const currentRound = gameState?.currentRound;
+  if (currentRound !== previousRoundRef.current) {
+    previousRoundRef.current = currentRound;
+    // Reset form state synchronously during render (not in effect)
+    if (submissionText !== "") {
+      setSubmissionText("");
+    }
+  }
 
   const handleSubmit = () => {
     if (!submissionText.trim() || !roomCode) return;

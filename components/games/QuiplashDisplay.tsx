@@ -1,24 +1,22 @@
-'use client';
+"use client";
 
-import type { GameState } from '@/lib/types/game';
+import type { GameState } from "@/lib/types/game";
 
 interface QuiplashDisplayProps {
   gameState: GameState;
 }
 
 export function QuiplashDisplay({ gameState }: QuiplashDisplayProps) {
-  const { phase, prompts, submissions, players, currentRound } = gameState;
+  const { phase, prompts, submissions, players } = gameState;
 
-  if (phase === 'submit') {
+  if (phase === "submit") {
     const submittedCount = submissions?.length || 0;
     const totalPlayers = players.length;
 
     return (
       <div className="text-center animate-slide-up">
         <h2 className="text-7xl font-black mb-12">Submit Your Answers</h2>
-        <p className="text-5xl opacity-80 mb-16">
-          Waiting for players...
-        </p>
+        <p className="text-5xl opacity-80 mb-16">Waiting for players...</p>
 
         {/* Progress Bar */}
         <div className="max-w-3xl mx-auto mb-12">
@@ -45,11 +43,11 @@ export function QuiplashDisplay({ gameState }: QuiplashDisplayProps) {
                 key={player.id}
                 className={`px-8 py-4 rounded-2xl text-2xl font-bold transition-all duration-300 ${
                   hasSubmitted
-                    ? 'bg-green-500/30 border-2 border-green-400'
-                    : 'bg-white/10 border-2 border-white/20'
+                    ? "bg-green-500/30 border-2 border-green-400"
+                    : "bg-white/10 border-2 border-white/20"
                 }`}
               >
-                {player.name} {hasSubmitted ? '✓' : '⏳'}
+                {player.name} {hasSubmitted ? "✓" : "⏳"}
               </div>
             );
           })}
@@ -58,7 +56,7 @@ export function QuiplashDisplay({ gameState }: QuiplashDisplayProps) {
     );
   }
 
-  if (phase === 'vote') {
+  if (phase === "vote") {
     // Show all submissions for voting
     return (
       <div className="text-center animate-slide-up">
@@ -67,7 +65,7 @@ export function QuiplashDisplay({ gameState }: QuiplashDisplayProps) {
         {/* Show the prompt */}
         {prompts && prompts[0] && (
           <div className="text-4xl opacity-80 mb-12 max-w-4xl mx-auto">
-            "{prompts[0].text}"
+            &ldquo;{prompts[0].text}&rdquo;
           </div>
         )}
 
@@ -83,7 +81,7 @@ export function QuiplashDisplay({ gameState }: QuiplashDisplayProps) {
                 {String.fromCharCode(65 + index)}
               </div>
               <div className="text-3xl min-h-[100px] flex items-center justify-center">
-                "{String(submission.data)}"
+                &ldquo;{String(submission.data)}&rdquo;
               </div>
             </div>
           ))}

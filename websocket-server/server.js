@@ -332,8 +332,8 @@ const io = new Server(httpServer, {
       const allowedOrigins = getAllowedOrigins();
       if (!origin) return callback(null, true);
 
-      // Allow configured origins
-      if (allowedOrigins.some((allowed) => origin.startsWith(allowed))) {
+      // Allow configured origins (exact match only for security)
+      if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
 
