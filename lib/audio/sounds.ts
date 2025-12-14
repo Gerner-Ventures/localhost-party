@@ -12,7 +12,7 @@ const musicTracks = new Map<MusicTrackId, Howl>();
 
 // Sound effect paths - using M4A (AAC) format (universally supported)
 const SOUND_PATHS: Record<SoundEffectId, string[]> = {
-  "button-click": ["/sounds/button-click.m4a"],
+  "button-click": ["/sounds/button-click-sys.m4a"], // Test with system sound
   "player-join": ["/sounds/player-join.m4a"],
   "submit-complete": ["/sounds/submit-complete.m4a"],
   "vote-cast": ["/sounds/vote-cast.m4a"],
