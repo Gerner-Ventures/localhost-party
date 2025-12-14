@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import { useAudio } from "@/lib/context/AudioContext";
 import type { Player } from "@/lib/types";
 
 interface RoomLobbyProps {
@@ -9,6 +11,8 @@ interface RoomLobbyProps {
 }
 
 export function RoomLobby({ roomCode, players }: RoomLobbyProps) {
+  const { playSound } = useAudio();
+  const previousPlayerCount = useRef(players.length);
   // Use configured URL, or Vercel's auto-provided URL, or fallback to localhost
   const appUrl =
     process.env.NEXT_PUBLIC_LH_PARTY_APP_URL ||
@@ -18,6 +22,14 @@ export function RoomLobby({ roomCode, players }: RoomLobbyProps) {
 
   // Player avatars - arcade/gaming themed
   const avatars = ["⚡", "🎮", "👾", "🕹️", "🎯", "🔥", "💎", "🚀"];
+
+  // Play sound when player joins
+  useEffect(() => {
+    if (players.length > previousPlayerCount.current) {
+      playSound("player-join");
+    }
+    previousPlayerCount.current = players.length;
+  }, [players.length, playSound]);
 
   return (
     <div className="flex h-screen p-8 text-white">

@@ -3,6 +3,7 @@
 import { useEffect, useState, Suspense, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { useWebSocket } from "@/lib/context/WebSocketContext";
+import { useAudio } from "@/lib/context/AudioContext";
 import { RoomLobby } from "@/components/display/RoomLobby";
 import { GameBoard } from "@/components/display/GameBoard";
 import { Leaderboard } from "@/components/display/Leaderboard";
@@ -11,6 +12,7 @@ function DisplayContent() {
   const searchParams = useSearchParams();
   const gameType = searchParams.get("game");
   const { gameState, emit, isConnected } = useWebSocket();
+  const { playSound } = useAudio();
   const [roomCode, setRoomCode] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
@@ -19,6 +21,7 @@ function DisplayContent() {
   // Refs to prevent duplicate operations (persists across re-renders and strict mode)
   const hasCreatedRoom = useRef(false);
   const hasJoinedRoom = useRef(false);
+  const previousPhase = useRef(gameState?.phase);
 
   // Create room once on mount - uses both ref and state for robust race condition prevention
   useEffect(() => {
@@ -64,6 +67,17 @@ function DisplayContent() {
       emit({ type: "display:join", payload: { roomCode } });
     }
   }, [isConnected, roomCode, emit]);
+
+  // Play sound on phase transitions
+  useEffect(() => {
+    if (gameState?.phase && gameState.phase !== previousPhase.current) {
+      // Skip sound on initial load
+      if (previousPhase.current !== undefined) {
+        playSound("phase-transition");
+      }
+      previousPhase.current = gameState.phase;
+    }
+  }, [gameState?.phase, playSound]);
 
   if (error) {
     return (

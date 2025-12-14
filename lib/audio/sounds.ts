@@ -49,6 +49,9 @@ function loadSound(soundId: SoundEffectId): Howl {
     src: [SOUND_PATHS[soundId]],
     preload: true,
     volume: 0.8,
+    onloaderror: (id, error) => {
+      console.warn(`Sound effect "${soundId}" not found:`, error);
+    },
   });
 
   soundEffects.set(soundId, sound);
@@ -68,6 +71,9 @@ function loadMusic(trackId: MusicTrackId): Howl {
     preload: true,
     volume: 0.3,
     loop: true,
+    onloaderror: (id, error) => {
+      console.warn(`Music track "${trackId}" not found:`, error);
+    },
   });
 
   musicTracks.set(trackId, track);
