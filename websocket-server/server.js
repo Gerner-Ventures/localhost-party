@@ -186,13 +186,14 @@ function advanceToNextRound(gameState) {
     };
   }
 
+  // Start next round - go directly to submit phase (no separate prompt display phase)
   const nextRound = gameState.currentRound + 1;
   const newPrompts = generatePromptsForRound(updatedPlayers, nextRound);
 
   return {
     ...gameState,
     currentRound: nextRound,
-    phase: 'prompt',
+    phase: 'submit', // Go directly to submit - players see prompts on their controllers
     players: updatedPlayers,
     prompts: newPrompts,
     submissions: [],
@@ -338,7 +339,9 @@ const io = new Server(httpServer, {
       }
 
       // Allow localhost-party Vercel preview deployments only
-      if (origin.match(/https:\/\/localhost-party.*\.vercel\.app$/)) {
+      // Pattern matches: localhost-party-{git-branch}-{team}.vercel.app or localhost-party-{hash}-{team}.vercel.app
+      // Anchored to prevent matching subdomains like "localhost-party-fake.malicious.vercel.app"
+      if (origin.match(/^https:\/\/localhost-party(-[a-z0-9-]+)*\.vercel\.app$/)) {
         return callback(null, true);
       }
 

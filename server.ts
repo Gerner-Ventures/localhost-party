@@ -346,7 +346,7 @@ app.prepare().then(() => {
               type: gameType,
               status: "active",
               totalRounds: 3,
-              state: room.gameState,
+              state: JSON.parse(JSON.stringify(room.gameState)),
             },
           });
 
@@ -447,12 +447,12 @@ app.prepare().then(() => {
                   },
                 });
 
-                // Create submission
+                // Create submission (sanitized is validated as string above)
                 await db.submission.create({
                   data: {
                     roundId: round.id,
                     playerId: dbPlayer.id,
-                    content: sanitized,
+                    content: String(sanitized),
                   },
                 });
               }
@@ -613,7 +613,7 @@ app.prepare().then(() => {
               },
               data: {
                 currentRound: room.gameState.currentRound,
-                state: room.gameState,
+                state: JSON.parse(JSON.stringify(room.gameState)),
               },
             });
           } catch (error) {

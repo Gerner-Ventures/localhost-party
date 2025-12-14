@@ -236,14 +236,14 @@ export function advanceToNextRound(
     };
   }
 
-  // Start next round
+  // Start next round - go directly to submit phase (no separate prompt display phase)
   const nextRound = gameState.currentRound + 1;
   const newPrompts = generatePromptsForRound(updatedPlayers, nextRound, config);
 
   return {
     ...gameState,
     currentRound: nextRound,
-    phase: "prompt",
+    phase: "submit", // Go directly to submit - players see prompts on their controllers
     players: updatedPlayers,
     prompts: newPrompts,
     submissions: [],
