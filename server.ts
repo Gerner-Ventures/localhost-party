@@ -513,6 +513,19 @@ app.prepare().then(() => {
         );
         room.gameState = updatedGameState as SharedRoom["gameState"];
 
+        // Sync room.players with updated scores from game state
+        // This is necessary because broadcastGameState() copies room.players to room.gameState.players
+        // Preserve socketId from existing room.players since gameState.players may not have it
+        room.players = room.players.map((existingPlayer) => {
+          const updatedPlayer = room.gameState.players.find(
+            (p) => p.id === existingPlayer.id
+          );
+          return {
+            ...existingPlayer,
+            score: updatedPlayer?.score ?? existingPlayer.score,
+          };
+        });
+
         // Persist vote to database (async, non-blocking)
         if (db) {
           try {
