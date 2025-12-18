@@ -3,14 +3,17 @@
 import { useEffect, useState, Suspense, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { useWebSocket } from "@/lib/context/WebSocketContext";
+import { useAudio } from "@/lib/context/AudioContext";
 import { RoomLobby } from "@/components/display/RoomLobby";
 import { GameBoard } from "@/components/display/GameBoard";
 import { Leaderboard } from "@/components/display/Leaderboard";
+import { AUDIO_VOLUMES, AUDIO_DURATIONS } from "@/lib/audio/constants";
 
 function DisplayContent() {
   const searchParams = useSearchParams();
   const gameType = searchParams.get("game");
   const { gameState, emit, isConnected } = useWebSocket();
+  const { playSound, playMusic, stopMusic } = useAudio();
   const [roomCode, setRoomCode] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
@@ -19,6 +22,8 @@ function DisplayContent() {
   // Refs to prevent duplicate operations (persists across re-renders and strict mode)
   const hasCreatedRoom = useRef(false);
   const hasJoinedRoom = useRef(false);
+  const previousPhase = useRef(gameState?.phase);
+  const isMusicPlaying = useRef(false);
 
   // Create room once on mount - uses both ref and state for robust race condition prevention
   useEffect(() => {
@@ -64,6 +69,45 @@ function DisplayContent() {
       emit({ type: "display:join", payload: { roomCode } });
     }
   }, [isConnected, roomCode, emit]);
+
+  // Play lobby music and handle phase transitions
+  useEffect(() => {
+    const currentPhase = gameState?.phase;
+
+    // Start music when in lobby phase
+    if (currentPhase === "lobby" && !isMusicPlaying.current) {
+      isMusicPlaying.current = true;
+      playMusic("lobby-theme", {
+        loop: true,
+        fadeIn: AUDIO_DURATIONS.FADE_IN_SLOW,
+        volume: AUDIO_VOLUMES.LOBBY_MUSIC,
+      });
+    }
+
+    // Stop music when game starts (leaving lobby)
+    if (currentPhase && currentPhase !== "lobby" && isMusicPlaying.current) {
+      isMusicPlaying.current = false;
+      stopMusic("lobby-theme", { fadeOut: AUDIO_DURATIONS.FADE_OUT_MEDIUM });
+    }
+
+    // Play phase transition sound
+    if (currentPhase && currentPhase !== previousPhase.current) {
+      // Skip sound on initial load
+      if (previousPhase.current !== undefined) {
+        playSound("phase-transition");
+      }
+      previousPhase.current = currentPhase;
+    }
+  }, [gameState?.phase, playSound, playMusic, stopMusic]);
+
+  // Cleanup music on unmount
+  useEffect(() => {
+    return () => {
+      if (isMusicPlaying.current) {
+        stopMusic("lobby-theme", { fadeOut: 500 });
+      }
+    };
+  }, [stopMusic]);
 
   if (error) {
     return (

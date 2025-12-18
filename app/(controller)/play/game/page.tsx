@@ -3,12 +3,14 @@
 import { useEffect, useState, useMemo, useRef, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useWebSocket } from "@/lib/context/WebSocketContext";
+import { useAudio } from "@/lib/context/AudioContext";
 import { getPlayerPrompt, getVotingOptions } from "@/lib/games/quiplash";
 
 function GameControllerContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { gameState, emit, isConnected } = useWebSocket();
+  const { playSound, unlockAudio, isUnlocked } = useAudio();
 
   const roomCode = searchParams.get("code")?.toUpperCase();
   const [playerName] = useState(() => {
@@ -50,8 +52,16 @@ function GameControllerContent() {
     }
   }
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!submissionText.trim() || !roomCode) return;
+
+    // Unlock audio on first interaction
+    if (!isUnlocked) {
+      await unlockAudio();
+    }
+
+    // Play submit sound
+    playSound("submit-complete");
 
     emit({
       type: "player:submit",
@@ -62,8 +72,16 @@ function GameControllerContent() {
     });
   };
 
-  const handleVote = (submissionPlayerId: string) => {
+  const handleVote = async (submissionPlayerId: string) => {
     if (!roomCode || hasVoted) return;
+
+    // Unlock audio on first interaction
+    if (!isUnlocked) {
+      await unlockAudio();
+    }
+
+    // Play vote sound
+    playSound("vote-cast");
 
     emit({
       type: "player:vote",
@@ -74,8 +92,16 @@ function GameControllerContent() {
     });
   };
 
-  const handleNextRound = () => {
+  const handleNextRound = async () => {
     if (!roomCode) return;
+
+    // Unlock audio on first interaction
+    if (!isUnlocked) {
+      await unlockAudio();
+    }
+
+    // Play button click sound
+    playSound("button-click");
 
     emit({
       type: "game:next-round",

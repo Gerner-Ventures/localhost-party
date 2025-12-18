@@ -3,11 +3,13 @@
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useWebSocket } from "@/lib/context/WebSocketContext";
+import { useAudio } from "@/lib/context/AudioContext";
 
 function PlayerLobbyContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { gameState, emit, isConnected } = useWebSocket();
+  const { playSound, unlockAudio, isUnlocked } = useAudio();
 
   const roomCode = searchParams.get("code")?.toUpperCase();
   // Initialize playerName from localStorage using lazy initializer
@@ -37,13 +39,21 @@ function PlayerLobbyContent() {
 
   const currentPlayer = gameState?.players.find((p) => p.name === playerName);
 
-  const handleStartGame = () => {
-    if (roomCode) {
-      emit({
-        type: "game:start",
-        payload: { roomCode, gameType: "quiplash" },
-      });
+  const handleStartGame = async () => {
+    if (!roomCode) return;
+
+    // Unlock audio on first interaction
+    if (!isUnlocked) {
+      await unlockAudio();
     }
+
+    // Play start game sound
+    playSound("all-ready");
+
+    emit({
+      type: "game:start",
+      payload: { roomCode, gameType: "quiplash" },
+    });
   };
 
   if (!roomCode) {

@@ -9,9 +9,11 @@ Skills are reusable prompts that help automate common development tasks. You can
 ### Suggested Skills to Create
 
 #### 1. Game Generator Skill
+
 Create a skill that scaffolds a new game following the established pattern.
 
 **File: `.claude/skills/generate-game.md`**
+
 ```markdown
 Generate a new game for localhost:party following these steps:
 
@@ -31,7 +33,9 @@ Follow the existing patterns from AI Quiplash as reference.
 ```
 
 #### 2. Component Generator Skill
+
 **File: `.claude/skills/generate-component.md`**
+
 ```markdown
 Generate a new React component for localhost:party:
 
@@ -47,7 +51,9 @@ Use the existing component patterns and design tokens.
 ```
 
 #### 3. AI Integration Skill
+
 **File: `.claude/skills/add-ai-feature.md`**
+
 ```markdown
 Add an AI-powered feature to localhost:party:
 
@@ -64,7 +70,9 @@ Consider cost implications and caching strategies.
 ```
 
 #### 4. Database Schema Update Skill
+
 **File: `.claude/skills/update-schema.md`**
+
 ```markdown
 Update the Prisma database schema:
 
@@ -86,12 +94,15 @@ You can also create slash commands in `.claude/commands/` for quick actions.
 ### Suggested Commands
 
 #### `/new-game`
+
 Quick command to start creating a new game (calls the generate-game skill).
 
 #### `/review-pr`
+
 Reviews code changes against project standards before creating a PR.
 
 #### `/add-test`
+
 Generates tests for a given file or component.
 
 ## Best Practices
@@ -101,6 +112,46 @@ Generates tests for a given file or component.
 3. **Type Safety**: Ensure generated code is fully typed
 4. **Error Handling**: Include proper error handling in generated code
 5. **Testing**: Skills should prompt for or generate tests
+
+## Environment & Configuration Management
+
+### Doppler Configuration Structure
+
+This project uses Doppler for secrets management with multiple configs:
+
+- **`dev_personal`**: Individual developer's local secrets (not synced to deployments)
+- **`dev`**: Shared development environment secrets
+- **`preview`**: Preview/staging deployment secrets (used by Vercel preview deployments)
+- **`prod`**: Production deployment secrets (used by Vercel production deployments)
+
+**CRITICAL**: When adding new environment variables:
+
+1. Add the secret to ALL relevant configs, not just `dev_personal`
+2. Required for deployments: `dev`, `preview`, `prod`
+3. Use this command pattern:
+
+   ```bash
+   # Get from dev_personal
+   VALUE=$(doppler secrets get SECRET_NAME --config dev_personal --plain)
+
+   # Set in all other configs
+   doppler secrets set SECRET_NAME="$VALUE" --config dev
+   doppler secrets set SECRET_NAME="$VALUE" --config preview
+   doppler secrets set SECRET_NAME="$VALUE" --config prod
+   ```
+
+4. Verify Vercel picked up the changes:
+   ```bash
+   vercel env ls | grep SECRET_NAME
+   ```
+
+### Common Pitfall
+
+Adding secrets only to `dev_personal` will cause runtime failures in deployed environments because Vercel pulls from `preview` and `prod` configs, not `dev_personal`.
+
+### Related Issues
+
+See issues #48, #49, #50 for historical context on Doppler configuration problems.
 
 ## Learning More
 
