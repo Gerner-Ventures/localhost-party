@@ -431,11 +431,36 @@ function broadcastGameState(roomCode) {
   const room = rooms.get(roomCode);
   if (!room) return;
 
-  console.log(`[Broadcast] Before assign - room.players scores:`, room.players.map(p => ({ id: p.id, name: p.name, score: p.score })));
+  console.log(`[Broadcast] Before merge - room.players scores:`, room.players.map(p => ({ id: p.id, name: p.name, score: p.score })));
+  console.log(`[Broadcast] Before merge - gameState.players scores:`, room.gameState.players?.map(p => ({ id: p.id, name: p.name, score: p.score })) || 'undefined');
 
-  room.gameState.players = room.players;
+  // Merge players: use room.players for membership but preserve scores from gameState.players
+  // This ensures scores calculated in handleVote() are not lost
+  const mergedPlayers = room.players.map(roomPlayer => {
+    const gsPlayer = room.gameState.players?.find(p => p.id === roomPlayer.id);
+    const finalScore = gsPlayer && gsPlayer.score > roomPlayer.score
+      ? gsPlayer.score
+      : roomPlayer.score;
 
-  console.log(`[Broadcast] After assign - gameState.players scores:`, room.gameState.players.map(p => ({ id: p.id, name: p.name, score: p.score })));
+    console.log(`[Broadcast] Merging player ${roomPlayer.name}: roomPlayer.score=${roomPlayer.score}, gsPlayer.score=${gsPlayer?.score}, finalScore=${finalScore}`);
+
+    return {
+      ...roomPlayer,
+      score: finalScore,
+    };
+  });
+
+  // Update both arrays with merged data
+  room.gameState.players = mergedPlayers;
+  // Also update room.players to keep them in sync
+  mergedPlayers.forEach(merged => {
+    const roomPlayer = room.players.find(p => p.id === merged.id);
+    if (roomPlayer) {
+      roomPlayer.score = merged.score;
+    }
+  });
+
+  console.log(`[Broadcast] After merge - final players scores:`, room.gameState.players.map(p => ({ id: p.id, name: p.name, score: p.score })));
   console.log(`[Broadcast] Emitting gameState with roundResults:`, room.gameState.roundResults);
 
   io.to(roomCode).emit('game:state-update', room.gameState);
