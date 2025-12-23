@@ -442,16 +442,24 @@ function syncPlayerScores(room) {
   console.log(`[SyncScores] Starting sync...`);
   console.log(`[SyncScores] gameState.players:`, room.gameState.players.map(p => ({ id: p.id, name: p.name, score: p.score })));
   console.log(`[SyncScores] room.players:`, room.players.map(p => ({ id: p.id, name: p.name, score: p.score })));
+  console.log(`[SyncScores] roundResults:`, room.gameState.roundResults);
 
-  room.gameState.players.forEach((gsPlayer) => {
-    const roomPlayer = room.players.find((p) => p.id === gsPlayer.id);
-    console.log(`[SyncScores] Looking for player ${gsPlayer.id} (${gsPlayer.name}) with score ${gsPlayer.score}`);
-    console.log(`[SyncScores] Found roomPlayer:`, roomPlayer ? `${roomPlayer.id} (${roomPlayer.name})` : 'NOT FOUND');
-    if (roomPlayer) {
-      console.log(`[SyncScores] Updating ${roomPlayer.name} score from ${roomPlayer.score} to ${gsPlayer.score}`);
-      roomPlayer.score = gsPlayer.score;
-    }
-  });
+  // Sync from roundResults directly for reliability
+  // roundResults contains the scores earned THIS round, keyed by player ID
+  if (room.gameState.roundResults && Object.keys(room.gameState.roundResults).length > 0) {
+    room.players.forEach((player) => {
+      const roundScore = room.gameState.roundResults[player.id] || 0;
+      const gameStatePlayer = room.gameState.players.find(p => p.id === player.id);
+      const targetScore = gameStatePlayer ? gameStatePlayer.score : player.score + roundScore;
+
+      console.log(`[SyncScores] Player ${player.name}: room.players.score=${player.score}, gameState.players.score=${gameStatePlayer?.score}, roundScore=${roundScore}, targetScore=${targetScore}`);
+
+      if (gameStatePlayer) {
+        player.score = gameStatePlayer.score;
+        console.log(`[SyncScores] Updated ${player.name} score to ${player.score} (from gameState)`);
+      }
+    });
+  }
 
   console.log(`[SyncScores] After sync - room.players:`, room.players.map(p => ({ id: p.id, name: p.name, score: p.score })));
 }
