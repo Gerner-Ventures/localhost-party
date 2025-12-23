@@ -144,17 +144,29 @@ function handleVote(gameState, voterId, voterName, votedForPlayerId) {
 
   // If all players voted, calculate and apply scores immediately
   if (allPlayersVoted) {
-    const gameStateWithVotes = { ...gameState, votes: updatedVotes };
-    const roundScores = calculateRoundScores(gameStateWithVotes);
-    const updatedPlayers = updatePlayerScores(gameState.players, roundScores);
+    console.log(`[handleVote] All players voted! Calculating scores...`);
+    console.log(`[handleVote] gameState.players IDs:`, gameState.players.map(p => p.id));
 
-    return {
+    const gameStateWithVotes = { ...gameState, votes: updatedVotes };
+    console.log(`[handleVote] Votes:`, updatedVotes.map(v => ({ voter: v.playerId, votedFor: v.data })));
+
+    const roundScores = calculateRoundScores(gameStateWithVotes);
+    console.log(`[handleVote] roundScores:`, roundScores);
+
+    console.log(`[handleVote] Input players before updatePlayerScores:`, gameState.players.map(p => ({ id: p.id, name: p.name, score: p.score })));
+    const updatedPlayers = updatePlayerScores(gameState.players, roundScores);
+    console.log(`[handleVote] Output players after updatePlayerScores:`, updatedPlayers.map(p => ({ id: p.id, name: p.name, score: p.score })));
+
+    const result = {
       ...gameState,
       votes: updatedVotes,
       phase: 'results',
       players: updatedPlayers,
       roundResults: roundScores,
     };
+
+    console.log(`[handleVote] Returning gameState with players:`, result.players.map(p => ({ id: p.id, name: p.name, score: p.score })));
+    return result;
   }
 
   return {
