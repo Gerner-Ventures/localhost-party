@@ -153,6 +153,14 @@ export function handleVote(
     return gameState;
   }
 
+  // Validate that the voted-for player exists
+  const votedForPlayer = gameState.players.find(
+    (p) => p.id === votedForPlayerId
+  );
+  if (!votedForPlayer) {
+    return gameState; // Invalid player ID
+  }
+
   // Check if player already voted
   const existingVote = gameState.votes?.find((v) => v.playerId === voterId);
   if (existingVote) {

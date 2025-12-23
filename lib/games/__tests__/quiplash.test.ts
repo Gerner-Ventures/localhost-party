@@ -108,6 +108,28 @@ describe("Quiplash Scoring", () => {
 
       expect(afterVotes).toBe(beforeVotes); // Vote should not be recorded
     });
+
+    it("should reject votes for invalid player IDs", () => {
+      const players = createPlayers();
+      let gameState = initializeQuiplashGame("TEST", players);
+
+      // Submit answers
+      gameState = handleSubmission(gameState, "player1", "Alice", "Answer 1");
+      gameState = handleSubmission(gameState, "player2", "Bob", "Answer 2");
+      gameState = handleSubmission(gameState, "player3", "Charlie", "Answer 3");
+
+      // Try to vote for a non-existent player
+      const beforeVotes = gameState.votes?.length || 0;
+      gameState = handleVote(
+        gameState,
+        "player1",
+        "Alice",
+        "invalid-player-id"
+      );
+      const afterVotes = gameState.votes?.length || 0;
+
+      expect(afterVotes).toBe(beforeVotes); // Vote should not be recorded
+    });
   });
 
   describe("advanceToNextRound", () => {

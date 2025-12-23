@@ -53,6 +53,26 @@ function logWarn(category, message, data = null) {
 // ============================================================================
 // In-memory Room Storage
 // ============================================================================
+/**
+ * CRITICAL ARCHITECTURE: Single Source of Truth for Player Data
+ * ==============================================================
+ *
+ * `room.players` is the ONLY canonical source of player data (including scores).
+ * `room.gameState.players` MUST always reference `room.players` (not a copy).
+ *
+ * This pattern ensures:
+ * 1. Score updates to `room.players` are immediately visible in `gameState`
+ * 2. No synchronization bugs between two separate player arrays
+ * 3. `broadcastGameState()` always sends current player data
+ *
+ * IMPORTANT: When calling game logic functions that return new gameState objects
+ * (like `handleVote()`, `advanceToNextRound()`), you MUST:
+ * 1. Apply any score changes to `room.players` using `applyScoresToPlayers()`
+ * 2. Reassign `room.gameState.players = room.players` to maintain the reference
+ *
+ * The `broadcastGameState()` function includes a defensive check to detect
+ * if this reference is accidentally broken.
+ */
 const rooms = new Map();
 const playerSockets = new Map();
 
