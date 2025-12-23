@@ -5,8 +5,12 @@ import {
   advanceToNextRound,
   handleSubmission,
   calculateRoundScores,
+  updatePlayerScores,
+  DEFAULT_QUIPLASH_CONFIG,
 } from "../quiplash";
 import { Player } from "../../types/player";
+
+const POINTS_PER_VOTE = DEFAULT_QUIPLASH_CONFIG.pointsPerVote;
 
 describe("Quiplash Scoring", () => {
   const createPlayers = (): Player[] => [
@@ -34,7 +38,7 @@ describe("Quiplash Scoring", () => {
   ];
 
   describe("handleVote", () => {
-    it("should calculate and apply scores when all players have voted", () => {
+    it("should compute roundResults when all players have voted", () => {
       const players = createPlayers();
       let gameState = initializeQuiplashGame("TEST", players);
 
@@ -45,7 +49,7 @@ describe("Quiplash Scoring", () => {
 
       expect(gameState.phase).toBe("vote");
 
-      // All players vote for player2
+      // All players vote: player1->player2, player2->player3, player3->player2
       gameState = handleVote(gameState, "player1", "Alice", "player2");
       expect(gameState.phase).toBe("vote"); // Not all voted yet
 
@@ -54,24 +58,20 @@ describe("Quiplash Scoring", () => {
 
       gameState = handleVote(gameState, "player3", "Charlie", "player2");
 
-      // Now all players have voted
+      // Now all players have voted - phase transitions to results
       expect(gameState.phase).toBe("results");
 
-      // Scores should be calculated immediately
-      const player2 = gameState.players.find((p) => p.id === "player2");
-      const player3 = gameState.players.find((p) => p.id === "player3");
-
-      // player2 got 2 votes (from player1 and player3) = 200 points
-      expect(player2?.score).toBe(200);
-      // player3 got 1 vote (from player2) = 100 points
-      expect(player3?.score).toBe(100);
-
-      // roundResults should also be populated
+      // roundResults should be populated with computed scores
+      // player2 got 2 votes, player3 got 1 vote, player1 got 0 votes
       expect(gameState.roundResults).toEqual({
         player1: 0,
-        player2: 200,
-        player3: 100,
+        player2: 2 * POINTS_PER_VOTE,
+        player3: 1 * POINTS_PER_VOTE,
       });
+
+      // NOTE: players array is NOT updated by handleVote() - that's the server's job
+      // This separation keeps game logic pure (computing) vs side effects (applying)
+      expect(gameState.players.every((p) => p.score === 0)).toBe(true);
     });
 
     it("should not calculate scores if not all players have voted", () => {
@@ -88,8 +88,8 @@ describe("Quiplash Scoring", () => {
       gameState = handleVote(gameState, "player2", "Bob", "player3");
 
       expect(gameState.phase).toBe("vote");
-      // Scores should still be 0
-      expect(gameState.players.every((p) => p.score === 0)).toBe(true);
+      // roundResults should be empty (not yet computed)
+      expect(gameState.roundResults).toEqual({});
     });
 
     it("should prevent voting for yourself", () => {
@@ -132,8 +132,54 @@ describe("Quiplash Scoring", () => {
     });
   });
 
+  describe("updatePlayerScores", () => {
+    it("should apply round scores to players correctly", () => {
+      const players = createPlayers();
+      const roundScores = {
+        player1: 0,
+        player2: 2 * POINTS_PER_VOTE,
+        player3: 1 * POINTS_PER_VOTE,
+      };
+
+      const updatedPlayers = updatePlayerScores(players, roundScores);
+
+      expect(updatedPlayers.find((p) => p.id === "player1")?.score).toBe(0);
+      expect(updatedPlayers.find((p) => p.id === "player2")?.score).toBe(
+        2 * POINTS_PER_VOTE
+      );
+      expect(updatedPlayers.find((p) => p.id === "player3")?.score).toBe(
+        1 * POINTS_PER_VOTE
+      );
+
+      // Original players should not be mutated
+      expect(players.every((p) => p.score === 0)).toBe(true);
+    });
+
+    it("should accumulate scores across multiple applications", () => {
+      let players = createPlayers();
+      const roundScores = {
+        player1: 0,
+        player2: 2 * POINTS_PER_VOTE,
+        player3: 1 * POINTS_PER_VOTE,
+      };
+
+      // Apply scores multiple times (simulating multiple rounds)
+      players = updatePlayerScores(players, roundScores);
+      players = updatePlayerScores(players, roundScores);
+      players = updatePlayerScores(players, roundScores);
+
+      // After 3 rounds
+      expect(players.find((p) => p.id === "player2")?.score).toBe(
+        3 * 2 * POINTS_PER_VOTE
+      );
+      expect(players.find((p) => p.id === "player3")?.score).toBe(
+        3 * 1 * POINTS_PER_VOTE
+      );
+    });
+  });
+
   describe("advanceToNextRound", () => {
-    it("should not recalculate scores (already done in handleVote)", () => {
+    it("should clear roundResults and advance to next round", () => {
       const players = createPlayers();
       let gameState = initializeQuiplashGame("TEST", players);
 
@@ -142,31 +188,28 @@ describe("Quiplash Scoring", () => {
       gameState = handleSubmission(gameState, "player2", "Bob", "Answer 2");
       gameState = handleSubmission(gameState, "player3", "Charlie", "Answer 3");
 
-      // player2 gets 2 votes, player3 gets 1 vote
       gameState = handleVote(gameState, "player1", "Alice", "player2");
       gameState = handleVote(gameState, "player2", "Bob", "player3");
       gameState = handleVote(gameState, "player3", "Charlie", "player2");
 
-      // player2 has 2 votes = 200 points
-      const scoreAfterVoting = gameState.players.find(
-        (p) => p.id === "player2"
-      )?.score;
-      expect(scoreAfterVoting).toBe(200);
+      // Verify roundResults was computed
+      expect(gameState.roundResults).toEqual({
+        player1: 0,
+        player2: 2 * POINTS_PER_VOTE,
+        player3: 1 * POINTS_PER_VOTE,
+      });
 
       // Advance to next round
       gameState = advanceToNextRound(gameState);
 
-      // Score should remain the same (not doubled)
-      const scoreAfterAdvance = gameState.players.find(
-        (p) => p.id === "player2"
-      )?.score;
-      expect(scoreAfterAdvance).toBe(200);
+      // roundResults should be cleared
+      expect(gameState.roundResults).toEqual({});
       expect(gameState.phase).toBe("submit");
       expect(gameState.currentRound).toBe(2);
     });
 
     it("should transition to final results when all rounds complete", () => {
-      const players = createPlayers();
+      let players = createPlayers();
       let gameState = initializeQuiplashGame("TEST", players);
 
       // Play through all 3 rounds
@@ -196,6 +239,10 @@ describe("Quiplash Scoring", () => {
         gameState = handleVote(gameState, "player2", "Bob", "player3");
         gameState = handleVote(gameState, "player3", "Charlie", "player2");
 
+        // Simulate server applying scores (as the server would do)
+        players = updatePlayerScores(players, gameState.roundResults || {});
+        gameState = { ...gameState, players };
+
         if (round < 3) {
           gameState = advanceToNextRound(gameState);
         }
@@ -207,13 +254,13 @@ describe("Quiplash Scoring", () => {
       expect(gameState.currentRound).toBe(3);
 
       // Verify cumulative scores
-      // Each round: player2 gets 2 votes (200), player3 gets 1 vote (100)
-      // After 3 rounds: player2 = 600, player3 = 300
+      // Each round: player2 gets 2 votes, player3 gets 1 vote
+      // After 3 rounds: player2 = 3*200 = 600, player3 = 3*100 = 300
       expect(gameState.players.find((p) => p.id === "player2")?.score).toBe(
-        600
+        3 * 2 * POINTS_PER_VOTE
       );
       expect(gameState.players.find((p) => p.id === "player3")?.score).toBe(
-        300
+        3 * 1 * POINTS_PER_VOTE
       );
     });
   });
@@ -258,8 +305,8 @@ describe("Quiplash Scoring", () => {
 
       expect(scores).toEqual({
         player1: 0,
-        player2: 200, // 2 votes
-        player3: 100, // 1 vote
+        player2: 2 * POINTS_PER_VOTE, // 2 votes
+        player3: 1 * POINTS_PER_VOTE, // 1 vote
       });
     });
   });

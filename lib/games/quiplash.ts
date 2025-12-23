@@ -180,17 +180,19 @@ export function handleVote(
   // Actually, each player votes once for their favorite answer
   const allPlayersVoted = updatedVotes.length === gameState.players.length;
 
-  // If all players voted, calculate and apply scores immediately
+  // If all players voted, calculate scores and transition to results
+  // NOTE: This function only computes roundResults. The server/caller is
+  // responsible for applying scores to the canonical player list using
+  // updatePlayerScores() or applyScoresToPlayers(). This separation keeps
+  // game logic pure (computing) vs side effects (applying).
   if (allPlayersVoted) {
     const gameStateWithVotes = { ...gameState, votes: updatedVotes };
     const roundScores = calculateRoundScores(gameStateWithVotes);
-    const updatedPlayers = updatePlayerScores(gameState.players, roundScores);
 
     return {
       ...gameState,
       votes: updatedVotes,
       phase: "results",
-      players: updatedPlayers,
       roundResults: roundScores,
     };
   }
@@ -203,6 +205,7 @@ export function handleVote(
 
 /**
  * Calculate scores for the current round
+ * This is a pure function that computes scores from votes.
  */
 export function calculateRoundScores(
   gameState: GameState
@@ -226,7 +229,18 @@ export function calculateRoundScores(
 }
 
 /**
- * Update player total scores
+ * Update player total scores by adding round scores.
+ * Returns a NEW array of players with updated scores (immutable).
+ *
+ * This function should be called by the server/caller after handleVote()
+ * to apply the computed roundResults to the canonical player list.
+ *
+ * @example
+ * // After voting completes:
+ * gameState = handleVote(gameState, voterId, voterName, votedForId);
+ * if (gameState.phase === 'results') {
+ *   players = updatePlayerScores(players, gameState.roundResults);
+ * }
  */
 export function updatePlayerScores(
   players: Player[],
