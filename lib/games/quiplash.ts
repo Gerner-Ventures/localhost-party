@@ -172,10 +172,24 @@ export function handleVote(
   // Actually, each player votes once for their favorite answer
   const allPlayersVoted = updatedVotes.length === gameState.players.length;
 
+  // If all players voted, calculate and apply scores immediately
+  if (allPlayersVoted) {
+    const gameStateWithVotes = { ...gameState, votes: updatedVotes };
+    const roundScores = calculateRoundScores(gameStateWithVotes);
+    const updatedPlayers = updatePlayerScores(gameState.players, roundScores);
+
+    return {
+      ...gameState,
+      votes: updatedVotes,
+      phase: "results",
+      players: updatedPlayers,
+      roundResults: roundScores,
+    };
+  }
+
   return {
     ...gameState,
     votes: updatedVotes,
-    phase: allPlayersVoted ? "results" : gameState.phase,
   };
 }
 
@@ -218,37 +232,35 @@ export function updatePlayerScores(
 
 /**
  * Advance to next round or end game
+ * Note: Scores are already calculated and applied in handleVote() when transitioning to results
  */
 export function advanceToNextRound(
   gameState: GameState,
   config: QuiplashConfig = DEFAULT_QUIPLASH_CONFIG
 ): GameState {
-  const roundScores = calculateRoundScores(gameState);
-  const updatedPlayers = updatePlayerScores(gameState.players, roundScores);
-
   // Check if game is over
   if (gameState.currentRound >= config.roundsPerGame) {
     return {
       ...gameState,
-      players: updatedPlayers,
-      roundResults: roundScores,
-      phase: "results", // Final results
+      phase: "results", // Final results - scores already applied in handleVote()
     };
   }
 
   // Start next round - go directly to submit phase (no separate prompt display phase)
   const nextRound = gameState.currentRound + 1;
-  const newPrompts = generatePromptsForRound(updatedPlayers, nextRound, config);
+  const newPrompts = generatePromptsForRound(
+    gameState.players,
+    nextRound,
+    config
+  );
 
   return {
     ...gameState,
     currentRound: nextRound,
     phase: "submit", // Go directly to submit - players see prompts on their controllers
-    players: updatedPlayers,
     prompts: newPrompts,
     submissions: [],
     votes: [],
-    roundResults: roundScores,
     timeRemaining: config.submissionTimeLimit,
   };
 }
