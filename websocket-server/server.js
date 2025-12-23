@@ -11,6 +11,34 @@ const crypto = require('crypto');
 const port = parseInt(process.env.PORT || '3001', 10);
 
 // ============================================================================
+// Logging Helper (Beta version - verbose logging enabled)
+// ============================================================================
+const LOG_LEVELS = {
+  DEBUG: process.env.LOG_LEVEL === 'debug',
+  INFO: true, // Always log info in beta
+};
+
+function log(level, category, message, data = null) {
+  const timestamp = new Date().toISOString();
+  const prefix = `[${timestamp}] [${level}] [${category}]`;
+  if (data) {
+    console.log(`${prefix} ${message}`, JSON.stringify(data, null, 2));
+  } else {
+    console.log(`${prefix} ${message}`);
+  }
+}
+
+function logDebug(category, message, data = null) {
+  if (LOG_LEVELS.DEBUG) {
+    log('DEBUG', category, message, data);
+  }
+}
+
+function logInfo(category, message, data = null) {
+  log('INFO', category, message, data);
+}
+
+// ============================================================================
 // In-memory Room Storage
 // ============================================================================
 const rooms = new Map();
@@ -133,14 +161,19 @@ function handleSubmission(gameState, playerId, playerName, submissionText) {
 function handleVote(gameState, voterId, voterName, votedForPlayerId) {
   // Prevent voting for yourself
   if (voterId === votedForPlayerId) {
+    logInfo('Vote', `Player "${voterName}" tried to vote for themselves - rejected`);
     return gameState;
   }
 
   // Prevent duplicate votes
   const existingVote = gameState.votes?.find((v) => v.playerId === voterId);
   if (existingVote) {
+    logInfo('Vote', `Player "${voterName}" already voted - duplicate rejected`);
     return gameState;
   }
+
+  const votedForPlayer = gameState.players.find(p => p.id === votedForPlayerId);
+  logInfo('Vote', `Player "${voterName}" voted for "${votedForPlayer?.name || 'unknown'}"`);
 
   const newVote = {
     playerId: voterId,
@@ -152,10 +185,16 @@ function handleVote(gameState, voterId, voterName, votedForPlayerId) {
   const updatedVotes = [...(gameState.votes || []), newVote];
   const allPlayersVoted = updatedVotes.length === gameState.players.length;
 
+  logInfo('Vote', `Votes: ${updatedVotes.length}/${gameState.players.length}`);
+
   // If all players voted, calculate scores
   if (allPlayersVoted) {
+    logInfo('Vote', 'All players have voted! Calculating scores...');
+
     const gameStateWithVotes = { ...gameState, votes: updatedVotes };
     const roundScores = calculateRoundScores(gameStateWithVotes);
+
+    logInfo('Vote', 'Round scores calculated', { roundScores });
 
     return {
       ...gameState,
@@ -194,12 +233,21 @@ function calculateRoundScores(gameState) {
  */
 function applyScoresToPlayers(players, roundScores) {
   if (!roundScores || Object.keys(roundScores).length === 0) {
+    logInfo('Scoring', 'No round scores to apply');
     return;
   }
 
+  logInfo('Scoring', 'Applying round scores', { roundScores });
+
   players.forEach((player) => {
     const roundScore = roundScores[player.id] || 0;
+    const previousScore = player.score;
     player.score += roundScore;
+    logInfo('Scoring', `Player "${player.name}": ${previousScore} + ${roundScore} = ${player.score}`);
+  });
+
+  logInfo('Scoring', 'Final player scores', {
+    players: players.map(p => ({ name: p.name, score: p.score }))
   });
 }
 
@@ -401,7 +449,7 @@ function getRoom(roomCode) {
     // Make gameState.players reference room.players
     room.gameState.players = room.players;
     rooms.set(roomCode, room);
-    console.log(`[Room] Created room: ${roomCode}`);
+    logInfo('Room', `Created room: ${roomCode}`);
   }
   room.lastActivity = Date.now();
   return room;
@@ -419,12 +467,12 @@ function cleanupIdleRooms() {
     if (isIdle && isEmpty && hasNoRecentActivity) {
       rooms.delete(code);
       cleanedCount++;
-      console.log(`[Cleanup] Removed idle room: ${code}`);
+      logInfo('Cleanup', `Removed idle room: ${code}`);
     }
   }
 
   if (cleanedCount > 0) {
-    console.log(`[Cleanup] Removed ${cleanedCount} room(s). Active: ${rooms.size}`);
+    logInfo('Cleanup', `Removed ${cleanedCount} room(s). Active: ${rooms.size}`);
   }
 }
 
@@ -442,6 +490,11 @@ function broadcastGameState(roomCode) {
   // Ensure gameState.players references room.players (single source of truth)
   room.gameState.players = room.players;
 
+  logInfo('Broadcast', `Room ${roomCode} - Phase: ${room.gameState.phase}, Round: ${room.gameState.currentRound}`, {
+    players: room.players.map(p => ({ name: p.name, score: p.score, connected: p.isConnected })),
+    roundResults: room.gameState.roundResults || null
+  });
+
   io.to(roomCode).emit('game:state-update', room.gameState);
 }
 
@@ -449,11 +502,11 @@ function broadcastGameState(roomCode) {
 // Socket Event Handlers
 // ============================================================================
 io.on('connection', (socket) => {
-  console.log(`[Socket] Connected: ${socket.id}`);
+  logDebug('Socket', `Connected: ${socket.id}`);
 
   // Display joins room
   socket.on('display:join', ({ roomCode }) => {
-    console.log(`[Display] Joining room: ${roomCode}`);
+    logInfo('Display', `Display joining room: ${roomCode}`);
 
     const room = getRoom(roomCode);
     room.displaySocketId = socket.id;
@@ -482,7 +535,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    console.log(`[Player] "${sanitizedName}" joining room: ${upperRoomCode}`);
+    logInfo('Player', `"${sanitizedName}" joining room: ${upperRoomCode}`);
 
     const room = getRoom(upperRoomCode);
     let player = room.players.find((p) => p.name === sanitizedName);
@@ -512,12 +565,12 @@ io.on('connection', (socket) => {
 
     broadcastGameState(upperRoomCode);
     socket.emit('player:joined', player);
-    console.log(`[Player] "${sanitizedName}" joined room ${upperRoomCode}`);
+    logInfo('Player', `"${sanitizedName}" joined room ${upperRoomCode}`, { playerId: player.id, score: player.score });
   });
 
   // Disconnect
   socket.on('disconnect', () => {
-    console.log(`[Socket] Disconnected: ${socket.id}`);
+    logDebug('Socket', `Disconnected: ${socket.id}`);
 
     const roomCode = socket.data.roomCode;
     if (!roomCode) return;
@@ -529,7 +582,7 @@ io.on('connection', (socket) => {
       const player = room.players.find((p) => p.id === socket.data.playerId);
       if (player) {
         player.isConnected = false;
-        console.log(`[Player] "${player.name}" disconnected from ${roomCode}`);
+        logInfo('Player', `"${player.name}" disconnected from ${roomCode}`);
         broadcastGameState(roomCode);
       }
       playerSockets.delete(socket.id);
@@ -537,13 +590,13 @@ io.on('connection', (socket) => {
 
     if (socket.data.isDisplay) {
       room.displaySocketId = null;
-      console.log(`[Display] Disconnected from ${roomCode}`);
+      logInfo('Display', `Display disconnected from ${roomCode}`);
     }
   });
 
   // Start game
   socket.on('game:start', ({ roomCode, gameType }) => {
-    console.log(`[Game] Starting "${gameType}" in room ${roomCode}`);
+    logInfo('Game', `Starting "${gameType}" in room ${roomCode}`);
 
     const room = rooms.get(roomCode);
     if (!room) {
@@ -688,19 +741,19 @@ io.on('connection', (socket) => {
 // Graceful Shutdown
 // ============================================================================
 process.on('SIGTERM', () => {
-  console.log('[Server] Received SIGTERM, shutting down...');
+  logInfo('Server', 'Received SIGTERM, shutting down...');
   clearInterval(cleanupInterval);
   io.close(() => {
-    console.log('[Server] Socket.io closed');
+    logInfo('Server', 'Socket.io closed');
     process.exit(0);
   });
 });
 
 process.on('SIGINT', () => {
-  console.log('[Server] Received SIGINT, shutting down...');
+  logInfo('Server', 'Received SIGINT, shutting down...');
   clearInterval(cleanupInterval);
   io.close(() => {
-    console.log('[Server] Socket.io closed');
+    logInfo('Server', 'Socket.io closed');
     process.exit(0);
   });
 });
