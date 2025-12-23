@@ -419,7 +419,13 @@ function broadcastGameState(roomCode) {
   const room = rooms.get(roomCode);
   if (!room) return;
 
+  console.log(`[Broadcast] Before assign - room.players scores:`, room.players.map(p => ({ id: p.id, name: p.name, score: p.score })));
+
   room.gameState.players = room.players;
+
+  console.log(`[Broadcast] After assign - gameState.players scores:`, room.gameState.players.map(p => ({ id: p.id, name: p.name, score: p.score })));
+  console.log(`[Broadcast] Emitting gameState with roundResults:`, room.gameState.roundResults);
+
   io.to(roomCode).emit('game:state-update', room.gameState);
   console.log(`[Broadcast] Room ${roomCode}:`, {
     phase: room.gameState.phase,
@@ -433,12 +439,21 @@ function broadcastGameState(roomCode) {
  * Call this after any operation that modifies scores in gameState.players
  */
 function syncPlayerScores(room) {
+  console.log(`[SyncScores] Starting sync...`);
+  console.log(`[SyncScores] gameState.players:`, room.gameState.players.map(p => ({ id: p.id, name: p.name, score: p.score })));
+  console.log(`[SyncScores] room.players:`, room.players.map(p => ({ id: p.id, name: p.name, score: p.score })));
+
   room.gameState.players.forEach((gsPlayer) => {
     const roomPlayer = room.players.find((p) => p.id === gsPlayer.id);
+    console.log(`[SyncScores] Looking for player ${gsPlayer.id} (${gsPlayer.name}) with score ${gsPlayer.score}`);
+    console.log(`[SyncScores] Found roomPlayer:`, roomPlayer ? `${roomPlayer.id} (${roomPlayer.name})` : 'NOT FOUND');
     if (roomPlayer) {
+      console.log(`[SyncScores] Updating ${roomPlayer.name} score from ${roomPlayer.score} to ${gsPlayer.score}`);
       roomPlayer.score = gsPlayer.score;
     }
   });
+
+  console.log(`[SyncScores] After sync - room.players:`, room.players.map(p => ({ id: p.id, name: p.name, score: p.score })));
 }
 
 // ============================================================================
@@ -615,13 +630,24 @@ io.on('connection', (socket) => {
     }
 
     if (room.gameState.gameType === 'quiplash') {
+      console.log(`[Vote] Before handleVote - room.players scores:`, room.players.map(p => ({ id: p.id, name: p.name, score: p.score })));
+      console.log(`[Vote] Before handleVote - gameState.players scores:`, room.gameState.players.map(p => ({ id: p.id, name: p.name, score: p.score })));
+
       room.gameState = handleVote(
         room.gameState,
         socket.data.playerId,
         socket.data.playerName,
         sanitized
       );
+
+      console.log(`[Vote] After handleVote - phase: ${room.gameState.phase}`);
+      console.log(`[Vote] After handleVote - gameState.players scores:`, room.gameState.players.map(p => ({ id: p.id, name: p.name, score: p.score })));
+      console.log(`[Vote] After handleVote - roundResults:`, room.gameState.roundResults);
+      console.log(`[Vote] After handleVote - room.players scores:`, room.players.map(p => ({ id: p.id, name: p.name, score: p.score })));
+
       syncPlayerScores(room);
+
+      console.log(`[Vote] After syncPlayerScores - room.players scores:`, room.players.map(p => ({ id: p.id, name: p.name, score: p.score })));
     } else {
       if (!room.gameState.votes) {
         room.gameState.votes = [];
