@@ -253,8 +253,35 @@ export function updatePlayerScores(
 }
 
 /**
+ * Apply round scores directly to the canonical player array (in-place mutation).
+ * This is the server-side counterpart to updatePlayerScores() - it mutates
+ * room.players directly instead of returning a new array.
+ *
+ * Use this in the server after handleVote() detects a vote->results transition.
+ *
+ * @example
+ * // In server.ts player:vote handler:
+ * const previousPhase = room.gameState.phase;
+ * room.gameState = handleVote(gameState, voterId, voterName, votedForId);
+ * if (previousPhase === 'vote' && room.gameState.phase === 'results') {
+ *   applyScoresToPlayers(room.players, room.gameState.roundResults);
+ * }
+ */
+export function applyScoresToPlayers(
+  players: Player[],
+  roundScores: Record<string, number> | undefined
+): void {
+  if (!roundScores || Object.keys(roundScores).length === 0) {
+    return;
+  }
+
+  players.forEach((player) => {
+    player.score += roundScores[player.id] || 0;
+  });
+}
+
+/**
  * Advance to next round or end game
- * Note: Scores are already calculated and applied in handleVote() when transitioning to results
  */
 export function advanceToNextRound(
   gameState: GameState,

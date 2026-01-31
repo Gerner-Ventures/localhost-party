@@ -13,11 +13,12 @@ import {
   handleSubmission,
   handleVote,
   advanceToNextRound,
+  applyScoresToPlayers,
   getPlayerPrompt,
 } from "./lib/games/quiplash";
 import { db } from "./lib/db";
 import type { GameState } from "./lib/types/game";
-// Player type imported for SharedRoom but used via sharedRooms module
+import { logDebug, logInfo, logWarn, logError } from "./lib/logger";
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = "localhost";
@@ -104,7 +105,7 @@ app.prepare().then(() => {
       const parsedUrl = parse(req.url || "", true);
       await handle(req, res, parsedUrl);
     } catch (err) {
-      console.error("Error occurred handling", req.url, err);
+      logError("HTTP", `Error handling ${req.url}`, err);
       res.statusCode = 500;
       res.end("internal server error");
     }
@@ -118,7 +119,28 @@ app.prepare().then(() => {
     },
   });
 
-  // Helper function to get or create room (uses shared registry)
+  /**
+   * CRITICAL ARCHITECTURE: Single Source of Truth for Player Data
+   * ==============================================================
+   *
+   * `room.players` is the ONLY canonical source of player data (including scores).
+   * `room.gameState.players` MUST always reference `room.players` (not a copy).
+   *
+   * This pattern ensures:
+   * 1. Score updates to `room.players` are immediately visible in `gameState`
+   * 2. No synchronization bugs between two separate player arrays
+   * 3. `broadcastGameState()` always sends current player data
+   *
+   * IMPORTANT: When calling game logic functions that return new gameState objects
+   * (like `handleVote()`, `advanceToNextRound()`), you MUST:
+   * 1. Apply any score changes to `room.players` using `applyScoresToPlayers()`
+   * 2. Reassign `room.gameState.players = room.players` to maintain the reference
+   *
+   * The `broadcastGameState()` function includes a defensive check to detect
+   * if this reference is accidentally broken.
+   */
+
+  /** Get or create a room from the shared registry */
   function getRoom(roomCode: string): SharedRoom {
     let room = sharedRooms.get(roomCode);
     if (!room) {
@@ -136,37 +158,37 @@ app.prepare().then(() => {
         lastActivity: Date.now(),
         createdAt: new Date(),
       };
+      // Make gameState.players reference room.players (single source of truth)
+      room.gameState.players = room.players;
       sharedRooms.set(roomCode, room);
+      logInfo("Room", `Created room: ${roomCode}`);
     }
-    // Update last activity timestamp
     room.lastActivity = Date.now();
     return room;
   }
 
-  // Room cleanup: remove idle rooms to prevent memory leaks
+  /** Remove idle rooms to prevent memory leaks */
   function cleanupIdleRooms() {
     const now = Date.now();
     let cleanedCount = 0;
 
     for (const [code, room] of sharedRooms.entries()) {
-      // Check if room has been idle for too long
       const isIdle = now - room.lastActivity > ROOM_IDLE_TIMEOUT;
-      // Check if room is empty (no connected players and no display)
       const isEmpty =
         room.players.every((p) => !p.isConnected) && !room.displaySocketId;
-      // Add buffer to prevent race condition with joining players
       const hasNoRecentActivity = now - room.lastActivity > ROOM_CLEANUP_BUFFER;
 
       if (isIdle && isEmpty && hasNoRecentActivity) {
         sharedRooms.remove(code);
         cleanedCount++;
-        console.log(`🧹 Cleaned up idle room: ${code}`);
+        logInfo("Cleanup", `Removed idle room: ${code}`);
       }
     }
 
     if (cleanedCount > 0) {
-      console.log(
-        `🧹 Cleaned up ${cleanedCount} idle room(s). Active rooms: ${sharedRooms.size()}`
+      logInfo(
+        "Cleanup",
+        `Removed ${cleanedCount} room(s). Active: ${sharedRooms.size()}`
       );
     }
   }
@@ -174,31 +196,52 @@ app.prepare().then(() => {
   // Start room cleanup interval
   const cleanupInterval = setInterval(cleanupIdleRooms, ROOM_CLEANUP_INTERVAL);
 
-  // Cleanup on server shutdown
   process.on("SIGTERM", () => {
+    logInfo("Server", "Received SIGTERM, shutting down...");
     clearInterval(cleanupInterval);
     process.exit(0);
   });
 
-  // Helper function to broadcast game state to all clients in a room
+  /**
+   * Broadcast game state to all clients in a room.
+   * Ensures room.players is the single source of truth before emitting.
+   */
   function broadcastGameState(roomCode: string): void {
     const room = sharedRooms.get(roomCode);
     if (!room) return;
 
-    // Update players in game state
+    // Defensive check: detect if reference was accidentally broken
+    if (room.gameState.players !== room.players) {
+      logWarn(
+        "Broadcast",
+        `Reference integrity broken for room ${roomCode} - restoring`
+      );
+    }
+
+    // Ensure gameState.players references room.players (single source of truth)
     room.gameState.players = room.players;
 
-    // Emit to all clients in the room
     io.to(roomCode).emit("game:state-update", room.gameState);
-    console.log(`📤 Broadcast game state to room ${roomCode}:`, room.gameState);
+    logDebug(
+      "Broadcast",
+      `Room ${roomCode} - Phase: ${room.gameState.phase}, Round: ${room.gameState.currentRound}`,
+      {
+        players: room.players.map((p) => ({
+          name: p.name,
+          score: p.score,
+          connected: p.isConnected,
+        })),
+        roundResults: room.gameState.roundResults || null,
+      }
+    );
   }
 
   io.on("connection", (socket) => {
-    console.log(`✅ Client connected: ${socket.id}`);
+    logDebug("Socket", `Connected: ${socket.id}`);
 
     // Display joins a room
     socket.on("display:join", ({ roomCode }) => {
-      console.log(`📺 Display joining room: ${roomCode}`);
+      logInfo("Display", `Display joining room: ${roomCode}`);
 
       const room = getRoom(roomCode);
       room.displaySocketId = socket.id;
@@ -207,45 +250,39 @@ app.prepare().then(() => {
       socket.data.roomCode = roomCode;
       socket.data.isDisplay = true;
 
-      // Send initial game state
+      // Ensure players reference is correct before sending
+      room.gameState.players = room.players;
       socket.emit("game:state-update", room.gameState);
-      console.log(`📤 Sent initial state to display ${roomCode}`);
     });
 
     // Player joins a room
     socket.on("player:join", ({ roomCode, name }) => {
-      // Validate and sanitize inputs
       const sanitizedName = sanitizePlayerName(name);
       const upperRoomCode =
         typeof roomCode === "string" ? roomCode.toUpperCase() : "";
 
       if (!isValidRoomCode(upperRoomCode)) {
-        console.warn(`⚠️ Invalid room code format: ${roomCode}`);
+        logWarn("Validation", `Invalid room code format: ${roomCode}`);
         socket.emit("player:error", { message: "Invalid room code format" });
         return;
       }
 
       if (!sanitizedName || sanitizedName.length < 1) {
-        console.warn(`⚠️ Invalid player name: ${name}`);
+        logWarn("Validation", `Invalid player name: ${name}`);
         socket.emit("player:error", { message: "Invalid player name" });
         return;
       }
 
-      console.log(
-        `🎮 Player "${sanitizedName}" joining room: ${upperRoomCode}`
-      );
+      logInfo("Player", `"${sanitizedName}" joining room: ${upperRoomCode}`);
 
       const room = getRoom(upperRoomCode);
 
-      // Check if player already exists (reconnection)
       let player = room.players.find((p) => p.name === sanitizedName);
 
       if (player) {
-        // Reconnection: update socket ID
         player.socketId = socket.id;
         player.isConnected = true;
       } else {
-        // New player - use crypto.randomUUID() for secure unique IDs
         player = {
           id: crypto.randomUUID(),
           name: sanitizedName,
@@ -257,24 +294,23 @@ app.prepare().then(() => {
         room.players.push(player);
       }
 
-      // Store player info with socket
       socket.join(upperRoomCode);
       socket.data.roomCode = upperRoomCode;
       socket.data.playerId = player.id;
       socket.data.playerName = sanitizedName;
       playerSockets.set(socket.id, player);
 
-      // Broadcast updated game state
       broadcastGameState(upperRoomCode);
-
-      // Send confirmation to the player
       socket.emit("player:joined", player);
-      console.log(`✅ Player "${sanitizedName}" joined room ${upperRoomCode}`);
+      logInfo("Player", `"${sanitizedName}" joined room ${upperRoomCode}`, {
+        playerId: player.id,
+        score: player.score,
+      });
     });
 
     // Player or display leaves
     socket.on("disconnect", () => {
-      console.log(`❌ Client disconnected: ${socket.id}`);
+      logDebug("Socket", `Disconnected: ${socket.id}`);
 
       const roomCode = socket.data.roomCode;
       if (!roomCode) return;
@@ -282,101 +318,105 @@ app.prepare().then(() => {
       const room = sharedRooms.get(roomCode);
       if (!room) return;
 
-      // If it's a player
       if (socket.data.playerId) {
         const player = room.players.find((p) => p.id === socket.data.playerId);
         if (player) {
           player.isConnected = false;
-          console.log(
-            `⚠️ Player "${player.name}" disconnected from room ${roomCode}`
-          );
-
-          // Broadcast updated state
+          logInfo("Player", `"${player.name}" disconnected from ${roomCode}`);
           broadcastGameState(roomCode);
         }
         playerSockets.delete(socket.id);
       }
 
-      // If it's the display
       if (socket.data.isDisplay) {
         room.displaySocketId = null;
-        console.log(`⚠️ Display disconnected from room ${roomCode}`);
+        logInfo("Display", `Display disconnected from ${roomCode}`);
       }
     });
 
     // Start game
-    socket.on("game:start", async ({ roomCode, gameType }) => {
-      console.log(`🎮 Starting game "${gameType}" in room ${roomCode}`);
+    socket.on("game:start", ({ roomCode, gameType }) => {
+      logInfo("Game", `Starting "${gameType}" in room ${roomCode}`);
 
       const room = sharedRooms.get(roomCode);
       if (!room) {
-        console.error(`❌ Room ${roomCode} not found`);
+        logError("Game", `Room ${roomCode} not found`);
         socket.emit("player:error", { message: "Room not found" });
         return;
       }
 
-      // Initialize game based on type
+      if (room.gameState.phase !== "lobby") {
+        logWarn(
+          "Game",
+          `Cannot start game in room ${roomCode} - phase is "${room.gameState.phase}", expected "lobby"`
+        );
+        socket.emit("player:error", { message: "Game already in progress" });
+        return;
+      }
+
       if (gameType === "quiplash") {
         room.gameState = initializeQuiplashGame(roomCode, room.players);
       } else {
-        // Fallback for other game types
         room.gameState.gameType = gameType;
         room.gameState.phase = "prompt";
         room.gameState.currentRound = 1;
       }
+      // Maintain single source of truth
+      room.gameState.players = room.players;
 
-      // Persist room and game to database (if available)
-      if (db) {
-        try {
-          const dbRoom = await db.room.upsert({
-            where: { code: roomCode },
-            create: {
-              code: roomCode,
-              status: "active",
-            },
-            update: {
-              status: "active",
-            },
-          });
-
-          // Create game record
-          await db.game.create({
-            data: {
-              roomId: dbRoom.id,
-              type: gameType,
-              status: "active",
-              totalRounds: 3,
-              state: JSON.parse(JSON.stringify(room.gameState)),
-            },
-          });
-
-          console.log(`💾 Game persisted to database for room ${roomCode}`);
-        } catch (error) {
-          console.error("Failed to persist game to database:", error);
-          // Continue anyway - game works in-memory
-        }
-      }
-
-      // Broadcast updated state
+      // Broadcast immediately - don't block on database
       broadcastGameState(roomCode);
+
+      // Persist to database in background (non-blocking)
+      if (db) {
+        (async () => {
+          try {
+            const dbRoom = await db.room.upsert({
+              where: { code: roomCode },
+              create: {
+                code: roomCode,
+                status: "active",
+              },
+              update: {
+                status: "active",
+              },
+            });
+
+            await db.game.create({
+              data: {
+                roomId: dbRoom.id,
+                type: gameType,
+                status: "active",
+                totalRounds: 3,
+                state: JSON.parse(JSON.stringify(room.gameState)),
+              },
+            });
+
+            logInfo("Database", `Game persisted for room ${roomCode}`);
+          } catch (error) {
+            logError("Database", "Failed to persist game", error);
+          }
+        })();
+      }
     });
 
-    // Generic player submission with validation
-    socket.on("player:submit", async ({ roomCode, data }) => {
-      // Validate room code
+    // Player submission
+    socket.on("player:submit", ({ roomCode, data }) => {
       if (!isValidRoomCode(roomCode)) {
         socket.emit("player:error", { message: "Invalid room code" });
         return;
       }
 
-      // Validate and sanitize submission data
       const { valid, sanitized } = validatePayloadData(data);
       if (!valid) {
         socket.emit("player:error", { message: "Invalid submission data" });
         return;
       }
 
-      console.log(`📝 Player submission in room ${roomCode}:`, sanitized);
+      logInfo(
+        "Submission",
+        `Player "${socket.data.playerName}" in room ${roomCode}`
+      );
 
       const room = sharedRooms.get(roomCode);
       if (!room) {
@@ -384,18 +424,35 @@ app.prepare().then(() => {
         return;
       }
 
-      // Handle submission based on game type
       if (room.gameState.gameType === "quiplash") {
         const updatedGameState = handleSubmission(
           room.gameState as GameState,
           socket.data.playerId,
           socket.data.playerName,
-          sanitized as string // Validated above, submissions are strings for quiplash
+          sanitized as string
         );
         room.gameState = updatedGameState as SharedRoom["gameState"];
+        // Maintain single source of truth
+        room.gameState.players = room.players;
+      } else {
+        if (!room.gameState.submissions) {
+          room.gameState.submissions = [];
+        }
 
-        // Persist submission to database (async, non-blocking)
-        if (db) {
+        room.gameState.submissions.push({
+          playerId: socket.data.playerId,
+          playerName: socket.data.playerName,
+          data: sanitized,
+          timestamp: Date.now(),
+        });
+      }
+
+      // Broadcast immediately - don't block on database
+      broadcastGameState(roomCode);
+
+      // Persist submission to database in background (non-blocking)
+      if (db && room.gameState.gameType === "quiplash") {
+        (async () => {
           try {
             const game = await db.game.findFirst({
               where: {
@@ -406,7 +463,6 @@ app.prepare().then(() => {
             });
 
             if (game) {
-              // Find or create round
               let round = game.rounds.find(
                 (r: { roundNum: number }) =>
                   r.roundNum === room.gameState.currentRound
@@ -425,7 +481,6 @@ app.prepare().then(() => {
                 });
               }
 
-              // Find or create player in database
               const dbRoom = await db.room.findUnique({
                 where: { code: roomCode },
               });
@@ -447,7 +502,6 @@ app.prepare().then(() => {
                   },
                 });
 
-                // Create submission (sanitized is validated as string above)
                 await db.submission.create({
                   data: {
                     roundId: round.id,
@@ -458,44 +512,26 @@ app.prepare().then(() => {
               }
             }
           } catch (error) {
-            console.error("Failed to persist submission:", error);
-            // Continue - game works in-memory
+            logError("Database", "Failed to persist submission", error);
           }
-        }
-      } else {
-        // Generic handling for other games
-        if (!room.gameState.submissions) {
-          room.gameState.submissions = [];
-        }
-
-        room.gameState.submissions.push({
-          playerId: socket.data.playerId,
-          playerName: socket.data.playerName,
-          data: sanitized,
-          timestamp: Date.now(),
-        });
+        })();
       }
-
-      // Broadcast updated state
-      broadcastGameState(roomCode);
     });
 
-    // Generic player vote with validation
-    socket.on("player:vote", async ({ roomCode, data }) => {
-      // Validate room code
+    // Player vote
+    socket.on("player:vote", ({ roomCode, data }) => {
       if (!isValidRoomCode(roomCode)) {
         socket.emit("player:error", { message: "Invalid room code" });
         return;
       }
 
-      // Validate and sanitize vote data
       const { valid, sanitized } = validatePayloadData(data);
       if (!valid) {
         socket.emit("player:error", { message: "Invalid vote data" });
         return;
       }
 
-      console.log(`🗳️ Player vote in room ${roomCode}:`, sanitized);
+      logInfo("Vote", `Player "${socket.data.playerName}" in room ${roomCode}`);
 
       const room = sharedRooms.get(roomCode);
       if (!room) {
@@ -503,18 +539,47 @@ app.prepare().then(() => {
         return;
       }
 
-      // Handle vote based on game type
       if (room.gameState.gameType === "quiplash") {
+        // Track phase before vote to detect vote->results transition
+        const previousPhase = room.gameState.phase;
         const updatedGameState = handleVote(
           room.gameState as GameState,
           socket.data.playerId,
           socket.data.playerName,
-          sanitized as string // Validated above, votes are player IDs (strings) for quiplash
+          sanitized as string
         );
         room.gameState = updatedGameState as SharedRoom["gameState"];
 
-        // Persist vote to database (async, non-blocking)
-        if (db) {
+        // Apply scores when transitioning from vote to results
+        if (previousPhase === "vote" && room.gameState.phase === "results") {
+          logInfo(
+            "Scoring",
+            "Vote phase complete - applying scores to players"
+          );
+          applyScoresToPlayers(room.players, room.gameState.roundResults);
+        }
+
+        // Maintain single source of truth
+        room.gameState.players = room.players;
+      } else {
+        if (!room.gameState.votes) {
+          room.gameState.votes = [];
+        }
+
+        room.gameState.votes.push({
+          playerId: socket.data.playerId,
+          playerName: socket.data.playerName,
+          data: sanitized,
+          timestamp: Date.now(),
+        });
+      }
+
+      // Broadcast immediately - don't block on database
+      broadcastGameState(roomCode);
+
+      // Persist vote to database in background (non-blocking)
+      if (db && room.gameState.gameType === "quiplash") {
+        (async () => {
           try {
             const game = await db.game.findFirst({
               where: {
@@ -524,7 +589,6 @@ app.prepare().then(() => {
             });
 
             if (game) {
-              // Find the submission being voted for
               const votedSubmission = await db.submission.findFirst({
                 where: {
                   round: {
@@ -562,30 +626,14 @@ app.prepare().then(() => {
               }
             }
           } catch (error) {
-            console.error("Failed to persist vote:", error);
-            // Continue - game works in-memory
+            logError("Database", "Failed to persist vote", error);
           }
-        }
-      } else {
-        // Generic handling for other games
-        if (!room.gameState.votes) {
-          room.gameState.votes = [];
-        }
-
-        room.gameState.votes.push({
-          playerId: socket.data.playerId,
-          playerName: socket.data.playerName,
-          data: sanitized,
-          timestamp: Date.now(),
-        });
+        })();
       }
-
-      // Broadcast updated state
-      broadcastGameState(roomCode);
     });
 
-    // Advance to next round (for Quiplash and similar games)
-    socket.on("game:next-round", async ({ roomCode }) => {
+    // Advance to next round
+    socket.on("game:next-round", ({ roomCode }) => {
       if (!isValidRoomCode(roomCode)) {
         socket.emit("player:error", { message: "Invalid room code" });
         return;
@@ -597,32 +645,88 @@ app.prepare().then(() => {
         return;
       }
 
+      if (room.gameState.phase !== "results") {
+        logWarn(
+          "Game",
+          `Cannot advance round in room ${roomCode} - phase is "${room.gameState.phase}", expected "results"`
+        );
+        socket.emit("player:error", { message: "Not in results phase" });
+        return;
+      }
+
       if (room.gameState.gameType === "quiplash") {
+        logInfo("Game", `Advancing to next round in room ${roomCode}`);
         const updatedGameState = advanceToNextRound(
           room.gameState as GameState
         );
         room.gameState = updatedGameState as SharedRoom["gameState"];
+        // Maintain single source of truth
+        room.gameState.players = room.players;
 
-        // Update game state in database
-        if (db) {
-          try {
-            await db.game.updateMany({
-              where: {
-                room: { code: roomCode },
-                status: "active",
-              },
-              data: {
-                currentRound: room.gameState.currentRound,
-                state: JSON.parse(JSON.stringify(room.gameState)),
-              },
-            });
-          } catch (error) {
-            console.error("Failed to update game state:", error);
-          }
-        }
-
+        // Broadcast immediately - don't block on database
         broadcastGameState(roomCode);
+
+        // Update game state in database in background (non-blocking)
+        if (db) {
+          (async () => {
+            try {
+              await db.game.updateMany({
+                where: {
+                  room: { code: roomCode },
+                  status: "active",
+                },
+                data: {
+                  currentRound: room.gameState.currentRound,
+                  state: JSON.parse(JSON.stringify(room.gameState)),
+                },
+              });
+            } catch (error) {
+              logError("Database", "Failed to update game state", error);
+            }
+          })();
+        }
       }
+    });
+
+    // Restart game (return to lobby with same players)
+    socket.on("game:restart", ({ roomCode }) => {
+      if (!isValidRoomCode(roomCode)) {
+        socket.emit("player:error", { message: "Invalid room code" });
+        return;
+      }
+
+      const room = sharedRooms.get(roomCode);
+      if (!room) {
+        socket.emit("player:error", { message: "Room not found" });
+        return;
+      }
+
+      if (room.gameState.phase !== "results") {
+        logWarn(
+          "Game",
+          `Cannot restart game in room ${roomCode} - phase is "${room.gameState.phase}", expected "results"`
+        );
+        socket.emit("player:error", { message: "Game not finished" });
+        return;
+      }
+
+      logInfo("Game", `Restarting game in room ${roomCode}`);
+
+      // Reset all player scores
+      room.players.forEach((player) => {
+        player.score = 0;
+      });
+
+      // Reset game state to lobby
+      room.gameState = {
+        roomCode,
+        gameType: null,
+        currentRound: 0,
+        phase: "lobby" as const,
+        players: room.players,
+      };
+
+      broadcastGameState(roomCode);
     });
 
     // Heartbeat/ping for connection health
@@ -633,7 +737,7 @@ app.prepare().then(() => {
 
   httpServer
     .once("error", (err) => {
-      console.error(err);
+      logError("Server", "Failed to start", err);
       process.exit(1);
     })
     .listen(port, () => {

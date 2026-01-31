@@ -21,11 +21,42 @@ function GameControllerContent() {
   });
   const [submissionText, setSubmissionText] = useState("");
 
+  const hasRejoined = useRef(false);
+  const isRedirecting = useRef(false);
+
   useEffect(() => {
     if (!roomCode) {
       router.push("/play");
     }
   }, [roomCode, router]);
+
+  // Reset re-join flag on disconnect so we re-join on reconnect
+  useEffect(() => {
+    if (!isConnected) {
+      hasRejoined.current = false;
+    }
+  }, [isConnected]);
+
+  // Re-join room on page load or reconnect
+  useEffect(() => {
+    if (isConnected && roomCode && playerName && !hasRejoined.current) {
+      hasRejoined.current = true;
+      emit({
+        type: "player:join",
+        payload: { roomCode, name: playerName },
+      });
+    }
+  }, [isConnected, roomCode, playerName, emit]);
+
+  // Redirect to lobby if game resets (guard prevents redirect loops)
+  useEffect(() => {
+    if (gameState?.phase === "lobby" && roomCode && !isRedirecting.current) {
+      isRedirecting.current = true;
+      router.replace(`/play/lobby?code=${roomCode}`);
+    } else if (gameState?.phase && gameState.phase !== "lobby") {
+      isRedirecting.current = false;
+    }
+  }, [gameState?.phase, roomCode, router]);
 
   const currentPlayer = gameState?.players.find((p) => p.name === playerName);
 
@@ -52,16 +83,8 @@ function GameControllerContent() {
     }
   }
 
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     if (!submissionText.trim() || !roomCode) return;
-
-    // Unlock audio on first interaction
-    if (!isUnlocked) {
-      await unlockAudio();
-    }
-
-    // Play submit sound
-    playSound("submit-complete");
 
     emit({
       type: "player:submit",
@@ -70,18 +93,19 @@ function GameControllerContent() {
         data: submissionText.trim(),
       },
     });
+
+    // Audio in background (non-blocking)
+    if (!isUnlocked) {
+      unlockAudio()
+        .then(() => playSound("submit-complete"))
+        .catch(() => {});
+    } else {
+      playSound("submit-complete");
+    }
   };
 
-  const handleVote = async (submissionPlayerId: string) => {
+  const handleVote = (submissionPlayerId: string) => {
     if (!roomCode || hasVoted) return;
-
-    // Unlock audio on first interaction
-    if (!isUnlocked) {
-      await unlockAudio();
-    }
-
-    // Play vote sound
-    playSound("vote-cast");
 
     emit({
       type: "player:vote",
@@ -90,23 +114,37 @@ function GameControllerContent() {
         data: submissionPlayerId,
       },
     });
+
+    // Audio in background (non-blocking)
+    if (!isUnlocked) {
+      unlockAudio()
+        .then(() => playSound("vote-cast"))
+        .catch(() => {});
+    } else {
+      playSound("vote-cast");
+    }
   };
 
-  const handleNextRound = async () => {
+  const handleNextRound = () => {
     if (!roomCode) return;
-
-    // Unlock audio on first interaction
-    if (!isUnlocked) {
-      await unlockAudio();
-    }
-
-    // Play button click sound
-    playSound("button-click");
 
     emit({
       type: "game:next-round",
       payload: { roomCode },
     });
+
+    playSound("button-click");
+  };
+
+  const handleRestart = () => {
+    if (!roomCode) return;
+
+    emit({
+      type: "game:restart",
+      payload: { roomCode },
+    });
+
+    playSound("button-click");
   };
 
   if (!roomCode || !gameState || !currentPlayer) {
@@ -324,7 +362,7 @@ function GameControllerContent() {
             </span>
           </div>
 
-          {gameState.currentRound < 3 && (
+          {gameState.currentRound < 3 ? (
             <button
               onClick={handleNextRound}
               className="arcade-button px-8 py-4 rounded-xl mt-8"
@@ -336,6 +374,19 @@ function GameControllerContent() {
               }}
             >
               NEXT ROUND
+            </button>
+          ) : (
+            <button
+              onClick={handleRestart}
+              className="arcade-button px-8 py-4 rounded-xl mt-8 animate-glow-pulse"
+              style={{
+                fontFamily: "var(--font-display)",
+                color: "var(--neon-green)",
+                borderColor: "var(--neon-green)",
+                fontSize: "1.1rem",
+              }}
+            >
+              PLAY AGAIN
             </button>
           )}
 

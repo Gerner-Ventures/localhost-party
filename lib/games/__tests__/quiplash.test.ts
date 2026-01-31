@@ -6,6 +6,7 @@ import {
   handleSubmission,
   calculateRoundScores,
   updatePlayerScores,
+  applyScoresToPlayers,
   DEFAULT_QUIPLASH_CONFIG,
 } from "../quiplash";
 import { Player } from "../../types/player";
@@ -175,6 +176,54 @@ describe("Quiplash Scoring", () => {
       expect(players.find((p) => p.id === "player3")?.score).toBe(
         3 * 1 * POINTS_PER_VOTE
       );
+    });
+  });
+
+  describe("applyScoresToPlayers", () => {
+    it("should mutate players in-place", () => {
+      const players = createPlayers();
+      const roundScores = {
+        player1: 0,
+        player2: 2 * POINTS_PER_VOTE,
+        player3: 1 * POINTS_PER_VOTE,
+      };
+
+      applyScoresToPlayers(players, roundScores);
+
+      // Scores should be applied directly to the original array
+      expect(players[0].score).toBe(0);
+      expect(players[1].score).toBe(2 * POINTS_PER_VOTE);
+      expect(players[2].score).toBe(1 * POINTS_PER_VOTE);
+    });
+
+    it("should accumulate scores across multiple calls", () => {
+      const players = createPlayers();
+      const roundScores = {
+        player1: 0,
+        player2: 2 * POINTS_PER_VOTE,
+        player3: 1 * POINTS_PER_VOTE,
+      };
+
+      applyScoresToPlayers(players, roundScores);
+      applyScoresToPlayers(players, roundScores);
+      applyScoresToPlayers(players, roundScores);
+
+      expect(players.find((p) => p.id === "player2")?.score).toBe(
+        3 * 2 * POINTS_PER_VOTE
+      );
+      expect(players.find((p) => p.id === "player3")?.score).toBe(
+        3 * 1 * POINTS_PER_VOTE
+      );
+    });
+
+    it("should handle empty roundScores", () => {
+      const players = createPlayers();
+
+      applyScoresToPlayers(players, {});
+      expect(players.every((p) => p.score === 0)).toBe(true);
+
+      applyScoresToPlayers(players, undefined);
+      expect(players.every((p) => p.score === 0)).toBe(true);
     });
   });
 
