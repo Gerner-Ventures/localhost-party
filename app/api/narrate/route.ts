@@ -5,6 +5,20 @@ import Anthropic from "@anthropic-ai/sdk";
 const requestCounts = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT = 10; // requests per minute
 const RATE_WINDOW_MS = 60000;
+const CLEANUP_INTERVAL_MS = 5 * 60000; // Clean up every 5 minutes
+
+// Clean up expired entries to prevent memory leaks
+function cleanupExpiredEntries(): void {
+  const now = Date.now();
+  for (const [ip, record] of requestCounts.entries()) {
+    if (now > record.resetAt) {
+      requestCounts.delete(ip);
+    }
+  }
+}
+
+// Run cleanup periodically
+setInterval(cleanupExpiredEntries, CLEANUP_INTERVAL_MS);
 
 function isRateLimited(ip: string): boolean {
   const now = Date.now();
@@ -53,13 +67,28 @@ interface NarrateRequest {
   gameDescription?: string;
 }
 
+// Sanitize user input to prevent prompt injection
+function sanitizeInput(input: string | undefined): string {
+  if (!input) return "";
+  return input
+    .replace(/[<>]/g, "") // Remove HTML brackets
+    .replace(/[\r\n]+/g, " ") // Replace newlines with spaces
+    .trim()
+    .slice(0, 200); // Limit length
+}
+
 const prompts: Record<NarrationType, (req: NarrateRequest) => string> = {
   welcome: () =>
     "Greet visitors to localhost:party, the ultimate AI-powered party game arcade. Make them excited to pick a game and start playing!",
-  "game-hover": (req) =>
-    `Briefly describe the game "${req.gameName}" in an exciting way. The game is about: ${req.gameDescription}. Make it sound fun in one short sentence!`,
-  "game-select": (req) =>
-    `The player just selected "${req.gameName}"! Give a quick, excited send-off as they're about to start playing.`,
+  "game-hover": (req) => {
+    const gameName = sanitizeInput(req.gameName);
+    const gameDescription = sanitizeInput(req.gameDescription);
+    return `Briefly describe the game "${gameName}" in an exciting way. The game is about: ${gameDescription}. Make it sound fun in one short sentence!`;
+  },
+  "game-select": (req) => {
+    const gameName = sanitizeInput(req.gameName);
+    return `The player just selected "${gameName}"! Give a quick, excited send-off as they're about to start playing.`;
+  },
 };
 
 export async function POST(request: NextRequest) {

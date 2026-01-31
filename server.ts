@@ -166,6 +166,7 @@ app.prepare().then(() => {
 
       if (isIdle && isEmpty && hasNoRecentActivity) {
         sharedRooms.remove(code);
+        agentManager.cleanupRoom(code);
         cleanedCount++;
         console.log(`🧹 Cleaned up idle room: ${code}`);
       }
@@ -660,12 +661,34 @@ app.prepare().then(() => {
     });
 
     // Agent toggle (enable/disable AI commentary)
-    socket.on("agent:toggle", ({ enabled }) => {
-      const roomCode = socket.data.roomCode;
+    socket.on("agent:toggle", ({ enabled, roomCode }) => {
+      // Validate inputs
+      if (typeof enabled !== "boolean") {
+        socket.emit("player:error", { message: "Invalid enabled value" });
+        return;
+      }
+
+      if (!isValidRoomCode(roomCode)) {
+        socket.emit("player:error", { message: "Invalid room code" });
+        return;
+      }
+
       console.log(
         `🤖 Agent toggle for room ${roomCode}: ${enabled ? "enabled" : "disabled"}`
       );
-      agentManager.setEnabled(enabled);
+
+      // Store per-room agent toggle state
+      const room = sharedRooms.get(roomCode);
+      if (!room) {
+        socket.emit("player:error", { message: "Room not found" });
+        return;
+      }
+
+      // Set agent state for this specific room
+      agentManager.setRoomEnabled(roomCode, enabled);
+
+      // Broadcast to all clients in the room
+      io.to(roomCode).emit("agent:toggled", { enabled });
     });
 
     // Heartbeat/ping for connection health

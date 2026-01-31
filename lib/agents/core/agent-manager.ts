@@ -26,6 +26,7 @@ export class AgentManager {
   private rateLimiter: AgentRateLimiter;
   private eventDetector: EventDetector;
   private previousStates: Map<string, GameState> = new Map(); // Per-room state tracking
+  private roomEnabledStates: Map<string, boolean> = new Map(); // Per-room enabled state
   private config: AgentConfig;
 
   constructor(config: Partial<AgentConfig> = {}) {
@@ -63,7 +64,9 @@ export class AgentManager {
     roomCode: string,
     currentState: GameState
   ): Promise<AgentResponse[]> {
-    if (!this.rateLimiter.isEnabled() || !this.anthropic) {
+    // Check both global and per-room enabled state
+    const roomEnabled = this.roomEnabledStates.get(roomCode) ?? true; // Default to enabled
+    if (!this.rateLimiter.isEnabled() || !this.anthropic || !roomEnabled) {
       return [];
     }
 
@@ -153,6 +156,18 @@ export class AgentManager {
   }
 
   /**
+   * Sanitize player names to prevent prompt injection
+   */
+  private sanitizePlayerName(name: string): string {
+    return name
+      .replace(/[<>]/g, "") // Remove HTML brackets
+      .replace(/[\r\n]+/g, " ") // Replace newlines with spaces
+      .replace(/system|user|assistant|human/gi, "") // Remove role keywords
+      .trim()
+      .slice(0, 20); // Enforce max length
+  }
+
+  /**
    * Generate a response from a specific persona for an event
    */
   private async generateResponse(
@@ -165,13 +180,21 @@ export class AgentManager {
     const contextPrompt = this.getContextPrompt(persona, event);
     if (!contextPrompt) return null;
 
+    // Sanitize all player names to prevent prompt injection
+    const sanitizedPlayerNames = event.context.playerNames.map((name) =>
+      this.sanitizePlayerName(name)
+    );
+    const sanitizedWinnerName = event.context.winnerName
+      ? this.sanitizePlayerName(event.context.winnerName)
+      : null;
+
     const userPrompt = `
 Current game state:
 - Room: ${event.context.roomCode}
 - Phase: ${event.context.phase}
 - Round: ${event.context.currentRound}
-- Players: ${event.context.playerNames.join(", ")}
-${event.context.winnerName ? `- Winner: ${event.context.winnerName}` : ""}
+- Players: ${sanitizedPlayerNames.join(", ")}
+${sanitizedWinnerName ? `- Winner: ${sanitizedWinnerName}` : ""}
 
 Event: ${event.type}
 
@@ -257,14 +280,36 @@ Respond in character with a brief spoken line (1-3 sentences max).`;
   }
 
   /**
-   * Enable or disable the agent system
+   * Clean up room state when a room is closed
+   */
+  cleanupRoom(roomCode: string): void {
+    this.previousStates.delete(roomCode);
+    this.roomEnabledStates.delete(roomCode);
+  }
+
+  /**
+   * Enable or disable the agent system globally
    */
   setEnabled(enabled: boolean): void {
     this.rateLimiter.setEnabled(enabled);
   }
 
   /**
-   * Check if agent system is enabled
+   * Enable or disable agents for a specific room
+   */
+  setRoomEnabled(roomCode: string, enabled: boolean): void {
+    this.roomEnabledStates.set(roomCode, enabled);
+  }
+
+  /**
+   * Check if agents are enabled for a specific room
+   */
+  isRoomEnabled(roomCode: string): boolean {
+    return this.roomEnabledStates.get(roomCode) ?? true; // Default to enabled
+  }
+
+  /**
+   * Check if agent system is enabled globally
    */
   isEnabled(): boolean {
     return this.rateLimiter.isEnabled() && this.anthropic !== null;
