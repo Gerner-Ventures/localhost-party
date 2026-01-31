@@ -13,9 +13,15 @@ COPY websocket-server ./websocket-server
 WORKDIR /app/websocket-server
 RUN npm install && npm run build
 
-# Copy package.json to /app root (Railway may look for it here)
+# Copy built output and package.json to /app root
+# Railway runs npm start from /app, so dist must be at /app/dist
 WORKDIR /app
+RUN cp -r /app/websocket-server/dist /app/dist
 COPY websocket-server/package.json ./package.json
+COPY websocket-server/package-lock.json ./package-lock.json
+
+# Install production dependencies in /app for runtime
+RUN npm ci --omit=dev
 
 # Expose port and start
 EXPOSE 8080
