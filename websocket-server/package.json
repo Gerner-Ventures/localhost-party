@@ -3,14 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "description": "Standalone WebSocket server for localhost:party - deploy to Railway",
-  "main": "server.js",
+  "main": "server.ts",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js"
+    "start": "tsx server.ts",
+    "dev": "tsx --watch server.ts"
   },
   "dependencies": {
     "socket.io": "^4.8.1",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "tsx": "^4.21.0"
   },
   "engines": {
     "node": ">=20.0.0"
