@@ -14,15 +14,22 @@ env:
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
 jobs:
-  # Create Neon branch when PR is opened/updated
-  create-neon-branch:
+  # Create Neon branch, run migrations, and deploy preview - all in one job
+  # to avoid job output masking issues with database URLs
+  deploy-preview:
     if: github.event.action != 'closed'
     runs-on: ubuntu-latest
-    outputs:
-      db_url: ${{ steps.build-url.outputs.db_url }}
-      branch_id: ${{ steps.create-branch.outputs.branch_id }}
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
       - name: Create Neon Branch
         id: create-branch
         uses: neondatabase/create-branch-action@v5
@@ -33,52 +40,25 @@ jobs:
           parent: main
           username: neondb_owner
 
-      - name: Build Database URL
-        id: build-url
+      - name: Get Database URL
+        id: get-db-url
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
         run: |
-          # Build connection string from components to avoid secret masking issues
-          DB_URL="postgresql://neondb_owner:${{ steps.create-branch.outputs.password }}@${{ steps.create-branch.outputs.db_host_pooled }}/neondb?sslmode=require"
-          echo "db_url=$DB_URL" >> $GITHUB_OUTPUT
-
-  # Run Prisma migrations on the new branch
-  migrate-database:
-    needs: create-neon-branch
-    if: github.event.action != 'closed'
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "npm"
+          npm install -g neonctl
+          DB_URL=$(neonctl connection-string pr-${{ github.event.pull_request.number }} \
+            --project-id ${{ env.NEON_PROJECT_ID }} \
+            --role-name neondb_owner \
+            --database-name neondb \
+            --pooled)
+          # Write to env file for subsequent steps (avoids output masking)
+          echo "LH_PARTY_DATABASE_URL=${DB_URL}" >> $GITHUB_ENV
 
       - name: Install dependencies
         run: npm ci
 
       - name: Push schema to branch
         run: npx prisma db push
-        env:
-          LH_PARTY_DATABASE_URL: ${{ needs.create-neon-branch.outputs.db_url }}
-
-  # Deploy preview to Vercel with dynamic database URL
-  deploy-preview:
-    needs: [create-neon-branch, migrate-database]
-    if: github.event.action != 'closed'
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "npm"
 
       - name: Install Vercel CLI
         run: npm install -g vercel@latest
@@ -86,16 +66,12 @@ jobs:
       - name: Pull Vercel environment
         run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
 
-      - name: Install dependencies
-        run: npm ci
-
       - name: Generate Prisma client
         run: npx prisma generate
 
       - name: Build project
         run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
         env:
-          LH_PARTY_DATABASE_URL: ${{ needs.create-neon-branch.outputs.db_url }}
           NEXT_PUBLIC_LH_PARTY_WS_URL: ${{ vars.PREVIEW_WS_URL }}
 
       - name: Deploy preview
