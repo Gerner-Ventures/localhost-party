@@ -1,0 +1,165 @@
+name: Preview Environment Management
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, closed]
+
+concurrency:
+  group: preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+jobs:
+  # Create Neon branch when PR is opened/updated
+  create-neon-branch:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    outputs:
+      db_url: ${{ steps.create-branch.outputs.db_url }}
+      branch_id: ${{ steps.create-branch.outputs.branch_id }}
+
+    steps:
+      - name: Create Neon Branch
+        id: create-branch
+        uses: neondatabase/create-branch-action@v6
+        with:
+          project_id: ${{ env.NEON_PROJECT_ID }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+          branch_name: pr-${{ github.event.pull_request.number }}
+          parent_branch: main
+
+  # Run Prisma migrations on the new branch
+  migrate-database:
+    needs: create-neon-branch
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Push schema to branch
+        run: npx prisma db push
+        env:
+          LH_PARTY_DATABASE_URL: ${{ needs.create-neon-branch.outputs.db_url }}
+
+  # Deploy preview to Vercel with dynamic database URL
+  deploy-preview:
+    needs: [create-neon-branch, migrate-database]
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      - name: Pull Vercel environment
+        run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Build project
+        run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          LH_PARTY_DATABASE_URL: ${{ needs.create-neon-branch.outputs.db_url }}
+          NEXT_PUBLIC_LH_PARTY_WS_URL: ${{ vars.PREVIEW_WS_URL }}
+
+      - name: Deploy preview
+        id: deploy
+        run: |
+          url=$(vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }})
+          echo "url=$url" >> $GITHUB_OUTPUT
+
+      - name: Comment PR with preview info
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = `## Preview Environment Ready
+
+            | Resource | Value |
+            |----------|-------|
+            | **Preview URL** | ${{ steps.deploy.outputs.url }} |
+            | **Database Branch** | \`pr-${{ github.event.pull_request.number }}\` |
+            | **WebSocket** | ${{ vars.PREVIEW_WS_URL }} |
+
+            This preview has its own isolated database branch.
+            `;
+
+            // Find and update existing comment or create new one
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(c =>
+              c.user.type === 'Bot' &&
+              c.body.includes('## Preview Environment Ready')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+  # Cleanup Neon branch when PR is closed
+  cleanup:
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Delete Neon branch
+        uses: neondatabase/delete-branch-action@v4
+        with:
+          project_id: ${{ env.NEON_PROJECT_ID }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+          branch_name: pr-${{ github.event.pull_request.number }}
+        continue-on-error: true # Branch may have been manually deleted
+
+      - name: Comment cleanup status
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: 'Preview environment cleaned up. Database branch `pr-${{ github.event.pull_request.number }}` has been deleted.',
+            });

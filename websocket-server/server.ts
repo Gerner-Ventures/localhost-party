@@ -191,15 +191,29 @@ const httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
 const getAllowedOrigins = (): string[] => {
   const origins: string[] = [];
 
+  // Primary app URL from environment
   if (process.env.NEXT_PUBLIC_LH_PARTY_APP_URL) {
     origins.push(process.env.NEXT_PUBLIC_LH_PARTY_APP_URL);
   }
 
+  // Always allow production
+  origins.push("https://localhost-party.vercel.app");
+
+  // Local development
   origins.push("http://localhost:3000");
   origins.push("http://localhost:3001");
 
+  // Dynamic Vercel URL (from Vercel environment)
   if (process.env.VERCEL_URL) {
     origins.push(`https://${process.env.VERCEL_URL}`);
+  }
+
+  // Additional allowed origins (comma-separated env var)
+  if (process.env.ALLOWED_ORIGINS) {
+    const additional = process.env.ALLOWED_ORIGINS.split(",").map((o) =>
+      o.trim()
+    );
+    origins.push(...additional);
   }
 
   return origins;
