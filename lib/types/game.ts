@@ -2,11 +2,25 @@ import { Player } from "./player";
 
 export type GameType =
   | "quiplash"
+  | "pixel-showdown"
   | "drawful"
   | "fibbage"
   | "murder-mystery"
   | "rap-battle";
-export type GamePhase = "lobby" | "prompt" | "submit" | "vote" | "results";
+
+export type GamePhase =
+  | "lobby"
+  | "prompt"
+  | "submit"
+  | "vote"
+  | "results"
+  // Pixel Showdown phases
+  | "category_announce"
+  | "question"
+  | "answer_reveal"
+  | "leaderboard"
+  | "round_results"
+  | "game_results";
 
 // Submission made by a player during gameplay
 export interface GameSubmission {

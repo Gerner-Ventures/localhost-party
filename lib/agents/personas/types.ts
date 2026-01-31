@@ -15,7 +15,13 @@ export type GameEventType =
   | "round:complete"
   | "game:started"
   | "game:complete"
-  | "idle:detected";
+  | "idle:detected"
+  // Pixel Showdown (Trivia) events
+  | "trivia:category-announce"
+  | "trivia:question-displayed"
+  | "trivia:answer-revealed"
+  | "trivia:hot-streak"
+  | "trivia:fast-answer";
 
 /**
  * A detected game event with context
@@ -43,6 +49,15 @@ export interface GameEventContext {
   scores?: Record<string, number>; // Player scores
   winnerName?: string; // For round/game complete
   recentSubmissions?: string[]; // Last few submissions (for commentary)
+  // Trivia-specific context
+  category?: string; // Current trivia category
+  questionNumber?: number; // Current question in round
+  correctAnswer?: string; // The correct answer (for reveal)
+  correctPlayers?: string[]; // Players who got it right
+  streakPlayer?: string; // Player on a streak
+  streakCount?: number; // Length of streak
+  fastPlayer?: string; // Player who answered quickly
+  responseTimeMs?: number; // How fast they answered
 }
 
 /**

@@ -1,6 +1,7 @@
 import type { GameState } from "../../types/game";
 import type { GameEvent, GameEventContext } from "../personas/types";
 import { DEFAULT_QUIPLASH_CONFIG } from "../../games/quiplash";
+import type { PixelShowdownState } from "../../types/pixel-showdown";
 
 /**
  * Detects game events by comparing previous and current game states.
@@ -163,6 +164,135 @@ export class EventDetector {
           winnerName: roundWinner,
         },
       });
+    }
+
+    // ============================================
+    // PIXEL SHOWDOWN (TRIVIA) EVENTS
+    // ============================================
+    if (currentState.gameType === "pixel-showdown") {
+      const triviaState = currentState as unknown as PixelShowdownState;
+      const prevTriviaState =
+        previousState as unknown as PixelShowdownState | null;
+
+      // Category announce
+      if (
+        triviaState.phase === "category_announce" &&
+        prevTriviaState?.phase !== "category_announce"
+      ) {
+        const category =
+          triviaState.currentQuestion?.category ||
+          triviaState.questionQueue?.[0]?.category ||
+          "General Knowledge";
+        events.push({
+          type: "trivia:category-announce",
+          timestamp: now,
+          context: {
+            ...context,
+            category,
+          },
+        });
+      }
+
+      // Question displayed
+      if (
+        triviaState.phase === "question" &&
+        prevTriviaState?.phase !== "question"
+      ) {
+        events.push({
+          type: "trivia:question-displayed",
+          timestamp: now,
+          context: {
+            ...context,
+            category: triviaState.currentQuestion?.category,
+            questionNumber: triviaState.questionNumber,
+          },
+        });
+      }
+
+      // Answer revealed
+      if (
+        triviaState.phase === "answer_reveal" &&
+        prevTriviaState?.phase === "question"
+      ) {
+        const correctPlayers = triviaState.answers
+          .filter((a) => a.isCorrect)
+          .map((a) => a.playerName);
+        events.push({
+          type: "trivia:answer-revealed",
+          timestamp: now,
+          context: {
+            ...context,
+            correctAnswer: triviaState.currentQuestion?.correctAnswer,
+            correctPlayers,
+          },
+        });
+      }
+
+      // Hot streak detection
+      if (triviaState.playerStats) {
+        for (const [playerId, stats] of Object.entries(
+          triviaState.playerStats
+        )) {
+          const prevStats = prevTriviaState?.playerStats?.[playerId];
+          // Trigger on reaching streak of 3, 5, or 7
+          if (
+            stats.currentStreak >= 3 &&
+            (!prevStats || prevStats.currentStreak < stats.currentStreak) &&
+            [3, 5, 7].includes(stats.currentStreak)
+          ) {
+            const player = triviaState.players.find((p) => p.id === playerId);
+            events.push({
+              type: "trivia:hot-streak",
+              timestamp: now,
+              context: {
+                ...context,
+                streakPlayer: player?.name,
+                streakCount: stats.currentStreak,
+              },
+            });
+          }
+        }
+      }
+
+      // Fast answer detection (under 3 seconds)
+      if (triviaState.answers.length > 0 && triviaState.questionStartTime) {
+        const latestAnswer =
+          triviaState.answers[triviaState.answers.length - 1];
+        const prevAnswerCount = prevTriviaState?.answers?.length || 0;
+        if (
+          triviaState.answers.length > prevAnswerCount &&
+          latestAnswer.isCorrect
+        ) {
+          const responseTime =
+            latestAnswer.timestamp - triviaState.questionStartTime;
+          if (responseTime < 3000) {
+            events.push({
+              type: "trivia:fast-answer",
+              timestamp: now,
+              context: {
+                ...context,
+                fastPlayer: latestAnswer.playerName,
+                responseTimeMs: responseTime,
+              },
+            });
+          }
+        }
+      }
+
+      // Game complete for trivia
+      if (
+        triviaState.phase === "game_results" &&
+        prevTriviaState?.phase !== "game_results"
+      ) {
+        events.push({
+          type: "game:complete",
+          timestamp: now,
+          context: {
+            ...context,
+            winnerName: this.getWinner(currentState),
+          },
+        });
+      }
     }
 
     return events;
