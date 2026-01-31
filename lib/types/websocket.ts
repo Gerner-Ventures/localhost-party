@@ -1,5 +1,6 @@
 import { Player } from "./player";
 import { GameState, GameType } from "./game";
+import type { VoiceId } from "../audio/types";
 
 // Payload types for submit/vote events
 export interface SubmitPayload {
@@ -28,6 +29,21 @@ export interface VotePayload {
       };
 }
 
+// Agent speech payload
+export interface AgentSpeakPayload {
+  agentId: string;
+  agentName: string;
+  text: string;
+  voice: VoiceId;
+  emotion: "neutral" | "excited" | "dramatic" | "welcoming" | "intense";
+  priority: number;
+}
+
+// Agent toggle payload
+export interface AgentTogglePayload {
+  enabled: boolean;
+}
+
 export type WebSocketEvent =
   | { type: "display:join"; payload: { roomCode: string } }
   | { type: "player:join"; payload: { roomCode: string; name: string } }
@@ -39,4 +55,6 @@ export type WebSocketEvent =
   | { type: "game:next-round"; payload: { roomCode: string } }
   | { type: "game:restart"; payload: { roomCode: string } }
   | { type: "player:submit"; payload: SubmitPayload }
-  | { type: "player:vote"; payload: VotePayload };
+  | { type: "player:vote"; payload: VotePayload }
+  | { type: "agent:speak"; payload: AgentSpeakPayload }
+  | { type: "agent:toggle"; payload: AgentTogglePayload };

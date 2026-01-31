@@ -18,6 +18,7 @@ import {
 } from "./lib/games/quiplash";
 import { db } from "./lib/db";
 import type { GameState } from "./lib/types/game";
+import { getAgentManager } from "./lib/agents";
 import { logDebug, logInfo, logWarn, logError } from "./lib/logger";
 
 const dev = process.env.NODE_ENV !== "production";
@@ -29,6 +30,9 @@ const handle = app.getRequestHandler();
 
 // Player socket tracking
 const playerSockets = new Map(); // socketId -> player info
+
+// Initialize AI agent manager
+const agentManager = getAgentManager();
 
 // Room cleanup settings
 const ROOM_IDLE_TIMEOUT = 30 * 60 * 1000; // 30 minutes
@@ -180,6 +184,7 @@ app.prepare().then(() => {
 
       if (isIdle && isEmpty && hasNoRecentActivity) {
         sharedRooms.remove(code);
+        agentManager.cleanupRoom(code);
         cleanedCount++;
         logInfo("Cleanup", `Removed idle room: ${code}`);
       }
@@ -234,6 +239,31 @@ app.prepare().then(() => {
         roundResults: room.gameState.roundResults || null,
       }
     );
+
+    // Trigger AI agent responses (async, non-blocking)
+    if (agentManager.isEnabled()) {
+      agentManager
+        .handleGameStateChange(roomCode, room.gameState as GameState)
+        .then((responses) => {
+          for (const response of responses) {
+            logDebug(
+              "Agent",
+              `${response.agentName}: "${response.text.substring(0, 50)}..."`
+            );
+            io.to(roomCode).emit("agent:speak", {
+              agentId: response.agentId,
+              agentName: response.agentName,
+              text: response.text,
+              voice: response.voice,
+              emotion: response.emotion,
+              priority: response.priority,
+            });
+          }
+        })
+        .catch((error) => {
+          logError("Agent", "Error generating responses", error);
+        });
+    }
   }
 
   io.on("connection", (socket) => {
@@ -353,6 +383,9 @@ app.prepare().then(() => {
         socket.emit("player:error", { message: "Game already in progress" });
         return;
       }
+
+      // Reset agent state for new game
+      agentManager.resetGame(roomCode);
 
       if (gameType === "quiplash") {
         room.gameState = initializeQuiplashGame(roomCode, room.players);
@@ -727,6 +760,35 @@ app.prepare().then(() => {
       };
 
       broadcastGameState(roomCode);
+    });
+
+    // Agent toggle (enable/disable AI commentary)
+    socket.on("agent:toggle", ({ enabled }) => {
+      if (typeof enabled !== "boolean") {
+        socket.emit("player:error", { message: "Invalid enabled value" });
+        return;
+      }
+
+      // Use roomCode from socket session (set during player:join / display:join)
+      const roomCode = socket.data.roomCode;
+      if (!roomCode) {
+        socket.emit("player:error", { message: "Not in a room" });
+        return;
+      }
+
+      logInfo(
+        "Agent",
+        `Toggle for room ${roomCode}: ${enabled ? "enabled" : "disabled"}`
+      );
+
+      const room = sharedRooms.get(roomCode);
+      if (!room) {
+        socket.emit("player:error", { message: "Room not found" });
+        return;
+      }
+
+      agentManager.setRoomEnabled(roomCode, enabled);
+      io.to(roomCode).emit("agent:toggled", { enabled });
     });
 
     // Heartbeat/ping for connection health

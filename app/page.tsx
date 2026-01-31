@@ -59,8 +59,8 @@ const colorClasses: Record<
   },
 };
 
-// Game-specific narrator descriptions
-const GAME_NARRATIONS: Record<string, string> = {
+// Fallback narrator descriptions (used when AI is unavailable)
+const FALLBACK_NARRATIONS: Record<string, string> = {
   quiplash:
     "Quip Clash. Battle of wits where the funniest answer wins. Get ready to make your friends laugh!",
   "game-1":
@@ -72,6 +72,34 @@ const GAME_NARRATIONS: Record<string, string> = {
   "game-4":
     "Retro Draw. Drawing meets guessing in pixelated glory. Unleash your inner artist!",
 };
+
+const FALLBACK_WELCOME =
+  "Welcome to localhost party. The ultimate arcade experience powered by AI. Choose your game and let the fun begin!";
+
+// Helper to fetch AI-generated narration with fallback
+async function fetchNarration(
+  type: "welcome" | "game-hover" | "game-select",
+  options?: { gameId?: string; gameName?: string; gameDescription?: string },
+  fallback?: string
+): Promise<string> {
+  try {
+    const response = await fetch("/api/narrate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type, ...options }),
+    });
+
+    if (!response.ok) {
+      throw new Error("API unavailable");
+    }
+
+    const data = await response.json();
+    return data.text || fallback || "";
+  } catch {
+    // Fallback to preconfigured text if AI is unavailable
+    return fallback || "";
+  }
+}
 
 function GameCard({
   game,
@@ -194,15 +222,13 @@ export default function Home() {
         volume: AUDIO_VOLUMES.HOME_MUSIC,
       });
 
-      // Welcome narration
-      await speak(
-        "Welcome to localhost party. The ultimate arcade experience powered by AI. Choose your game and let the fun begin!",
-        {
-          voice: "game-host",
-          emotion: "welcoming",
-          pauseBefore: AUDIO_DURATIONS.NARRATOR_PAUSE_BEFORE,
-        }
-      );
+      // AI-generated welcome narration (with fallback)
+      const welcomeText = await fetchNarration("welcome", {}, FALLBACK_WELCOME);
+      await speak(welcomeText, {
+        voice: "game-host",
+        emotion: "welcoming",
+        pauseBefore: AUDIO_DURATIONS.NARRATOR_PAUSE_BEFORE,
+      });
     }
   };
 
@@ -225,12 +251,23 @@ export default function Home() {
     }
 
     // Debounce hover - only speak if hovering for configured duration
-    hoverTimeoutRef.current = setTimeout(() => {
+    hoverTimeoutRef.current = setTimeout(async () => {
       // Don't execute if component has unmounted
       if (!isMountedRef.current) return;
 
       setLastHoveredGame(game.id);
-      const narration = GAME_NARRATIONS[game.id];
+
+      // AI-generated game description (with fallback)
+      const narration = await fetchNarration(
+        "game-hover",
+        {
+          gameId: game.id,
+          gameName: game.name,
+          gameDescription: game.description,
+        },
+        FALLBACK_NARRATIONS[game.id]
+      );
+
       if (narration) {
         speak(narration, {
           voice: "game-host",
@@ -244,9 +281,14 @@ export default function Home() {
   const handleGameClick = async (game: Game) => {
     await handleInitialUnlock();
 
-    // Play selection sound
-    // Note: We'll add a new sound effect for this
-    await speak(`${game.name} selected. Get ready to party!`, {
+    // AI-generated selection announcement (with fallback)
+    const selectionText = await fetchNarration(
+      "game-select",
+      { gameId: game.id, gameName: game.name },
+      `${game.name} selected. Get ready to party!`
+    );
+
+    await speak(selectionText, {
       voice: "game-host",
       emotion: "excited",
     });
