@@ -19,18 +19,26 @@ jobs:
     if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     outputs:
-      db_url: ${{ steps.create-branch.outputs.db_url }}
+      db_url: ${{ steps.build-url.outputs.db_url }}
       branch_id: ${{ steps.create-branch.outputs.branch_id }}
 
     steps:
       - name: Create Neon Branch
         id: create-branch
-        uses: neondatabase/create-branch-action@v6
+        uses: neondatabase/create-branch-action@v5
         with:
           project_id: ${{ env.NEON_PROJECT_ID }}
           api_key: ${{ secrets.NEON_API_KEY }}
           branch_name: pr-${{ github.event.pull_request.number }}
-          parent_branch: main
+          parent: main
+          username: neondb_owner
+
+      - name: Build Database URL
+        id: build-url
+        run: |
+          # Build connection string from components to avoid secret masking issues
+          DB_URL="postgresql://neondb_owner:${{ steps.create-branch.outputs.password }}@${{ steps.create-branch.outputs.db_host_pooled }}/neondb?sslmode=require"
+          echo "db_url=$DB_URL" >> $GITHUB_OUTPUT
 
   # Run Prisma migrations on the new branch
   migrate-database:
