@@ -3,24 +3,22 @@ FROM node:22-slim
 
 WORKDIR /app
 
-# Copy package files for websocket-server
-COPY websocket-server/package*.json ./websocket-server/
-
-# Install websocket-server dependencies
-WORKDIR /app/websocket-server
-RUN npm install
-
 # Copy lib files needed for bundling
-WORKDIR /app
 COPY lib ./lib
+
+# Copy websocket-server files
 COPY websocket-server ./websocket-server
 
-# Build the bundled server
+# Install dependencies and build
 WORKDIR /app/websocket-server
-RUN npm run build
+RUN npm install && npm run build
 
-# Start the server
+# Copy package.json to /app root (Railway may look for it here)
 WORKDIR /app
+COPY websocket-server/package.json ./package.json
+
+# Expose port and start
 EXPOSE 8080
 ENV PORT=8080
+ENV NODE_ENV=production
 CMD ["node", "websocket-server/dist/server.js"]
