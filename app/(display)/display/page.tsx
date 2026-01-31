@@ -4,6 +4,7 @@ import { useEffect, useState, Suspense, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { useWebSocket } from "@/lib/context/WebSocketContext";
 import { useAudio } from "@/lib/context/AudioContext";
+import { useAgents } from "@/lib/context/AgentContext";
 import { RoomLobby } from "@/components/display/RoomLobby";
 import { GameBoard } from "@/components/display/GameBoard";
 import { Leaderboard } from "@/components/display/Leaderboard";
@@ -14,6 +15,7 @@ function DisplayContent() {
   const gameType = searchParams.get("game");
   const { gameState, emit, isConnected } = useWebSocket();
   const { playSound, playMusic, stopMusic } = useAudio();
+  const { agentsEnabled, setAgentsEnabled, speakingAgent } = useAgents();
   const [roomCode, setRoomCode] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
@@ -153,6 +155,28 @@ function DisplayContent() {
       {gameState.phase === "results" && (
         <Leaderboard players={gameState.players} />
       )}
+
+      {/* AI Agent Toggle */}
+      <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2">
+        {speakingAgent && (
+          <div className="px-3 py-1 rounded-full bg-neon-cyan/20 text-neon-cyan text-sm animate-pulse">
+            AI Speaking...
+          </div>
+        )}
+        <button
+          onClick={() => setAgentsEnabled(!agentsEnabled)}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+            agentsEnabled
+              ? "bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/50 hover:bg-neon-cyan/30"
+              : "bg-gray-800/80 text-gray-400 border border-gray-600 hover:bg-gray-700"
+          }`}
+          title={
+            agentsEnabled ? "Disable AI Commentary" : "Enable AI Commentary"
+          }
+        >
+          {agentsEnabled ? "AI: ON" : "AI: OFF"}
+        </button>
+      </div>
     </>
   );
 }

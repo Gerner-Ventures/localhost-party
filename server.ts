@@ -17,6 +17,7 @@ import {
 } from "./lib/games/quiplash";
 import { db } from "./lib/db";
 import type { GameState } from "./lib/types/game";
+import { getAgentManager } from "./lib/agents";
 // Player type imported for SharedRoom but used via sharedRooms module
 
 const dev = process.env.NODE_ENV !== "production";
@@ -28,6 +29,12 @@ const handle = app.getRequestHandler();
 
 // Player socket tracking
 const playerSockets = new Map(); // socketId -> player info
+
+// Initialize AI agent manager
+const agentManager = getAgentManager();
+console.log(
+  `🤖 AI Agent Manager initialized. Enabled: ${agentManager.isEnabled()}`
+);
 
 // Room cleanup settings
 const ROOM_IDLE_TIMEOUT = 30 * 60 * 1000; // 30 minutes
@@ -191,6 +198,30 @@ app.prepare().then(() => {
     // Emit to all clients in the room
     io.to(roomCode).emit("game:state-update", room.gameState);
     console.log(`📤 Broadcast game state to room ${roomCode}:`, room.gameState);
+
+    // Trigger AI agent responses (async, non-blocking)
+    if (agentManager.isEnabled()) {
+      agentManager
+        .handleGameStateChange(roomCode, room.gameState as GameState)
+        .then((responses) => {
+          for (const response of responses) {
+            console.log(
+              `🤖 Agent ${response.agentName}: "${response.text.substring(0, 50)}..."`
+            );
+            io.to(roomCode).emit("agent:speak", {
+              agentId: response.agentId,
+              agentName: response.agentName,
+              text: response.text,
+              voice: response.voice,
+              emotion: response.emotion,
+              priority: response.priority,
+            });
+          }
+        })
+        .catch((error) => {
+          console.error("[AgentManager] Error generating responses:", error);
+        });
+    }
   }
 
   io.on("connection", (socket) => {
@@ -314,6 +345,9 @@ app.prepare().then(() => {
         socket.emit("player:error", { message: "Room not found" });
         return;
       }
+
+      // Reset agent state for new game
+      agentManager.resetGame(roomCode);
 
       // Initialize game based on type
       if (gameType === "quiplash") {
@@ -623,6 +657,15 @@ app.prepare().then(() => {
 
         broadcastGameState(roomCode);
       }
+    });
+
+    // Agent toggle (enable/disable AI commentary)
+    socket.on("agent:toggle", ({ enabled }) => {
+      const roomCode = socket.data.roomCode;
+      console.log(
+        `🤖 Agent toggle for room ${roomCode}: ${enabled ? "enabled" : "disabled"}`
+      );
+      agentManager.setEnabled(enabled);
     });
 
     // Heartbeat/ping for connection health
