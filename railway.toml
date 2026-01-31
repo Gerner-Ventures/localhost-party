@@ -1,12 +1,11 @@
 # Railway configuration for WebSocket server
-# Deploys from repo root to access shared lib/ files
+# Uses Dockerfile for reliable builds with Node 22
 
 [build]
-builder = "NIXPACKS"
-nixpacksConfigPath = "websocket-server/nixpacks.toml"
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "node websocket-server/dist/server.js"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
