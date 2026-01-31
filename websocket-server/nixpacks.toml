@@ -1,0 +1,13 @@
+# Nixpacks configuration for WebSocket server
+
+[phases.setup]
+nixPkgs = ["nodejs_22", "npm"]
+
+[phases.install]
+cmds = ["cd /app/websocket-server && npm install"]
+
+[phases.build]
+cmds = ["cd /app/websocket-server && npm run build"]
+
+[start]
+cmd = "node /app/websocket-server/dist/server.js"

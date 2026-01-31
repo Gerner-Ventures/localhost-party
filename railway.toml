@@ -3,7 +3,7 @@
 
 [build]
 builder = "NIXPACKS"
-buildCommand = "cd websocket-server && npm install && npm run build"
+nixpacksConfigPath = "websocket-server/nixpacks.toml"
 
 [deploy]
 startCommand = "node websocket-server/dist/server.js"
