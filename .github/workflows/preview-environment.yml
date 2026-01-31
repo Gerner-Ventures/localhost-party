@@ -8,6 +8,10 @@ concurrency:
   group: preview-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  pull-requests: write
+
 env:
   NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
