@@ -9,6 +9,7 @@ import { RoomLobby } from "@/components/display/RoomLobby";
 import { GameBoard } from "@/components/display/GameBoard";
 import { Leaderboard } from "@/components/display/Leaderboard";
 import { AUDIO_VOLUMES, AUDIO_DURATIONS } from "@/lib/audio/constants";
+import type { GameType } from "@/lib/types/game";
 
 function DisplayContent() {
   const searchParams = useSearchParams();
@@ -68,9 +69,13 @@ function DisplayContent() {
   useEffect(() => {
     if (isConnected && roomCode && !hasJoinedRoom.current) {
       hasJoinedRoom.current = true;
-      emit({ type: "display:join", payload: { roomCode } });
+      // Pass gameType so Railway WebSocket server knows what game this room is for
+      emit({
+        type: "display:join",
+        payload: { roomCode, gameType: gameType as GameType | null },
+      });
     }
-  }, [isConnected, roomCode, emit]);
+  }, [isConnected, roomCode, gameType, emit]);
 
   // Play lobby music and handle phase transitions
   useEffect(() => {

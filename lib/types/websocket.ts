@@ -61,7 +61,10 @@ export interface TriviaNextQuestionPayload {
 }
 
 export type WebSocketEvent =
-  | { type: "display:join"; payload: { roomCode: string } }
+  | {
+      type: "display:join";
+      payload: { roomCode: string; gameType?: GameType | null };
+    }
   | { type: "player:join"; payload: { roomCode: string; name: string } }
   | { type: "player:joined"; payload: Player }
   | { type: "player:left"; payload: { playerId: string } }

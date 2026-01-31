@@ -284,11 +284,20 @@ app.prepare().then(() => {
     logDebug("Socket", `Connected: ${socket.id}`);
 
     // Display joins a room
-    socket.on("display:join", ({ roomCode }) => {
-      logInfo("Display", `Display joining room: ${roomCode}`);
+    socket.on("display:join", ({ roomCode, gameType }) => {
+      logInfo(
+        "Display",
+        `Display joining room: ${roomCode} (gameType: ${gameType || "not specified"})`
+      );
 
       const room = getRoom(roomCode);
       room.displaySocketId = socket.id;
+
+      // Set gameType if provided and not already set
+      if (gameType && !room.gameState.gameType) {
+        room.gameState.gameType = gameType;
+        logInfo("Display", `Set gameType for room ${roomCode}: ${gameType}`);
+      }
 
       socket.join(roomCode);
       socket.data.roomCode = roomCode;
