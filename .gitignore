@@ -38,6 +38,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# websocket-server build output
+websocket-server/dist
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
