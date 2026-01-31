@@ -75,12 +75,12 @@ function PlayerLobbyContent() {
   const currentPlayer = gameState?.players.find((p) => p.name === playerName);
 
   const handleStartGame = () => {
-    if (!roomCode) return;
+    if (!roomCode || !gameState?.gameType) return;
 
     // Emit immediately - don't block on audio
     emit({
       type: "game:start",
-      payload: { roomCode, gameType: "quiplash" },
+      payload: { roomCode, gameType: gameState.gameType },
     });
 
     // Audio in background (non-blocking)
