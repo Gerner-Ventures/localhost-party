@@ -54,6 +54,7 @@ export type WebSocketEvent =
   | { type: "game:state-update"; payload: GameState }
   | { type: "game:start"; payload: { roomCode: string; gameType: GameType } }
   | { type: "game:next-round"; payload: { roomCode: string } }
+  | { type: "game:restart"; payload: { roomCode: string } }
   | { type: "player:submit"; payload: SubmitPayload }
   | { type: "player:vote"; payload: VotePayload }
   | { type: "agent:speak"; payload: AgentSpeakPayload }

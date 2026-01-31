@@ -5,10 +5,8 @@
 
 ### Jan 30, 2026
 
-| ID   | Time    | T   | Title                                                       | Read |
-| ---- | ------- | --- | ----------------------------------------------------------- | ---- |
-| #719 | 7:03 PM | ⚖️  | AI Agent Avatar Architecture for Dynamic Game Personalities | ~908 |
-| #710 | 6:57 PM | 🔵  | Complete Audio and AI Integration Architecture Analysis     | ~825 |
-| #700 | 6:43 PM | 🟣  | Comprehensive CLAUDE.md Developer Guide Created             | ~780 |
+| ID    | Time     | T   | Title                                           | Read |
+| ----- | -------- | --- | ----------------------------------------------- | ---- |
+| #1058 | 10:46 PM | 🔵  | Merge conflict detected in websocket types file | ~335 |
 
 </claude-mem-context>

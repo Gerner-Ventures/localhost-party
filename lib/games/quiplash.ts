@@ -153,6 +153,14 @@ export function handleVote(
     return gameState;
   }
 
+  // Validate that the voted-for player exists
+  const votedForPlayer = gameState.players.find(
+    (p) => p.id === votedForPlayerId
+  );
+  if (!votedForPlayer) {
+    return gameState; // Invalid player ID
+  }
+
   // Check if player already voted
   const existingVote = gameState.votes?.find((v) => v.playerId === voterId);
   if (existingVote) {
@@ -172,15 +180,32 @@ export function handleVote(
   // Actually, each player votes once for their favorite answer
   const allPlayersVoted = updatedVotes.length === gameState.players.length;
 
+  // If all players voted, calculate scores and transition to results
+  // NOTE: This function only computes roundResults. The server/caller is
+  // responsible for applying scores to the canonical player list using
+  // updatePlayerScores() or applyScoresToPlayers(). This separation keeps
+  // game logic pure (computing) vs side effects (applying).
+  if (allPlayersVoted) {
+    const gameStateWithVotes = { ...gameState, votes: updatedVotes };
+    const roundScores = calculateRoundScores(gameStateWithVotes);
+
+    return {
+      ...gameState,
+      votes: updatedVotes,
+      phase: "results",
+      roundResults: roundScores,
+    };
+  }
+
   return {
     ...gameState,
     votes: updatedVotes,
-    phase: allPlayersVoted ? "results" : gameState.phase,
   };
 }
 
 /**
  * Calculate scores for the current round
+ * This is a pure function that computes scores from votes.
  */
 export function calculateRoundScores(
   gameState: GameState
@@ -204,7 +229,18 @@ export function calculateRoundScores(
 }
 
 /**
- * Update player total scores
+ * Update player total scores by adding round scores.
+ * Returns a NEW array of players with updated scores (immutable).
+ *
+ * This function should be called by the server/caller after handleVote()
+ * to apply the computed roundResults to the canonical player list.
+ *
+ * @example
+ * // After voting completes:
+ * gameState = handleVote(gameState, voterId, voterName, votedForId);
+ * if (gameState.phase === 'results') {
+ *   players = updatePlayerScores(players, gameState.roundResults);
+ * }
  */
 export function updatePlayerScores(
   players: Player[],
@@ -217,38 +253,64 @@ export function updatePlayerScores(
 }
 
 /**
+ * Apply round scores directly to the canonical player array (in-place mutation).
+ * This is the server-side counterpart to updatePlayerScores() - it mutates
+ * room.players directly instead of returning a new array.
+ *
+ * Use this in the server after handleVote() detects a vote->results transition.
+ *
+ * @example
+ * // In server.ts player:vote handler:
+ * const previousPhase = room.gameState.phase;
+ * room.gameState = handleVote(gameState, voterId, voterName, votedForId);
+ * if (previousPhase === 'vote' && room.gameState.phase === 'results') {
+ *   applyScoresToPlayers(room.players, room.gameState.roundResults);
+ * }
+ */
+export function applyScoresToPlayers(
+  players: Player[],
+  roundScores: Record<string, number> | undefined
+): void {
+  if (!roundScores || Object.keys(roundScores).length === 0) {
+    return;
+  }
+
+  players.forEach((player) => {
+    player.score += roundScores[player.id] || 0;
+  });
+}
+
+/**
  * Advance to next round or end game
  */
 export function advanceToNextRound(
   gameState: GameState,
   config: QuiplashConfig = DEFAULT_QUIPLASH_CONFIG
 ): GameState {
-  const roundScores = calculateRoundScores(gameState);
-  const updatedPlayers = updatePlayerScores(gameState.players, roundScores);
-
   // Check if game is over
   if (gameState.currentRound >= config.roundsPerGame) {
     return {
       ...gameState,
-      players: updatedPlayers,
-      roundResults: roundScores,
-      phase: "results", // Final results
+      phase: "results", // Final results - scores already applied in handleVote()
     };
   }
 
   // Start next round - go directly to submit phase (no separate prompt display phase)
   const nextRound = gameState.currentRound + 1;
-  const newPrompts = generatePromptsForRound(updatedPlayers, nextRound, config);
+  const newPrompts = generatePromptsForRound(
+    gameState.players,
+    nextRound,
+    config
+  );
 
   return {
     ...gameState,
     currentRound: nextRound,
     phase: "submit", // Go directly to submit - players see prompts on their controllers
-    players: updatedPlayers,
     prompts: newPrompts,
     submissions: [],
     votes: [],
-    roundResults: roundScores,
+    roundResults: {}, // Clear previous round results
     timeRemaining: config.submissionTimeLimit,
   };
 }

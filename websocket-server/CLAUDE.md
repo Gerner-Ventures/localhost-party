@@ -5,8 +5,8 @@
 
 ### Jan 30, 2026
 
-| ID   | Time    | T   | Title                                                             | Read |
-| ---- | ------- | --- | ----------------------------------------------------------------- | ---- |
-| #705 | 6:54 PM | 🔵  | Standalone WebSocket Server Implementation for Railway Deployment | ~752 |
+| ID    | Time     | T   | Title                                                           | Read |
+| ----- | -------- | --- | --------------------------------------------------------------- | ---- |
+| #1061 | 10:48 PM | ✅  | Cleaned up merge conflict markers in websocket-server CLAUDE.md | ~287 |
 
 </claude-mem-context>
