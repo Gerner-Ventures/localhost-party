@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import type { Player } from '@/lib/types';
+import type { Player } from "@/lib/types";
 
 interface LeaderboardProps {
   players: Player[];
@@ -9,21 +9,38 @@ interface LeaderboardProps {
 export function Leaderboard({ players }: LeaderboardProps) {
   const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
 
-  const getMedal = (position: number) => {
-    switch (position) {
-      case 0: return '🥇';
-      case 1: return '🥈';
-      case 2: return '🥉';
-      default: return '🏅';
+  // Compute rank based on score - tied players share the same rank
+  const getRank = (index: number): number => {
+    if (index === 0) return 0;
+    if (sortedPlayers[index].score === sortedPlayers[index - 1].score) {
+      return getRank(index - 1);
+    }
+    return index;
+  };
+
+  const getMedal = (rank: number) => {
+    switch (rank) {
+      case 0:
+        return "🥇";
+      case 1:
+        return "🥈";
+      case 2:
+        return "🥉";
+      default:
+        return "🏅";
     }
   };
 
-  const getPositionColor = (position: number) => {
-    switch (position) {
-      case 0: return 'from-yellow-400 to-yellow-600';
-      case 1: return 'from-gray-300 to-gray-500';
-      case 2: return 'from-orange-400 to-orange-600';
-      default: return 'from-blue-400 to-blue-600';
+  const getPositionColor = (rank: number) => {
+    switch (rank) {
+      case 0:
+        return "from-yellow-400 to-yellow-600";
+      case 1:
+        return "from-gray-300 to-gray-500";
+      case 2:
+        return "from-orange-400 to-orange-600";
+      default:
+        return "from-blue-400 to-blue-600";
     }
   };
 
@@ -39,28 +56,33 @@ export function Leaderboard({ players }: LeaderboardProps) {
 
       {/* Leaderboard */}
       <div className="w-full max-w-4xl space-y-6">
-        {sortedPlayers.map((player, index) => (
-          <div
-            key={player.id}
-            className={`flex items-center justify-between p-8 rounded-2xl bg-gradient-to-r ${getPositionColor(index)} shadow-2xl transform hover:scale-105 transition-all`}
-            style={{
-              animation: `slideIn 0.5s ease-out ${index * 0.15}s both`
-            }}
-          >
-            <div className="flex items-center gap-6">
-              <div className="text-6xl">{getMedal(index)}</div>
-              <div className="text-5xl font-black text-white">{player.name}</div>
+        {sortedPlayers.map((player, index) => {
+          const rank = getRank(index);
+          return (
+            <div
+              key={player.id}
+              className={`flex items-center justify-between p-8 rounded-2xl bg-gradient-to-r ${getPositionColor(rank)} shadow-2xl transform hover:scale-105 transition-all`}
+              style={{
+                animation: `slideIn 0.5s ease-out ${index * 0.15}s both`,
+              }}
+            >
+              <div className="flex items-center gap-6">
+                <div className="text-6xl">{getMedal(rank)}</div>
+                <div className="text-5xl font-black text-white">
+                  {player.name}
+                </div>
+              </div>
+              <div className="text-6xl font-black text-white drop-shadow-lg">
+                {player.score}
+              </div>
             </div>
-            <div className="text-6xl font-black text-white drop-shadow-lg">
-              {player.score}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Play Again Prompt */}
       <div className="mt-16 text-3xl opacity-80 text-center">
-        Want to play again? Scan the QR code on the next screen
+        Want to play again? Hit &ldquo;Play Again&rdquo; on your phone!
       </div>
 
       <style jsx>{`

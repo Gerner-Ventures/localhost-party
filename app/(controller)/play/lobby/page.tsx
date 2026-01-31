@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
+import { useEffect, useState, useRef, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useWebSocket } from "@/lib/context/WebSocketContext";
 import { useAudio } from "@/lib/context/AudioContext";
@@ -23,37 +23,74 @@ function PlayerLobbyContent() {
   // Player avatars - arcade/gaming themed
   const avatars = ["⚡", "🎮", "👾", "🕹️", "🎯", "🔥", "💎", "🚀"];
 
+  const hasRejoined = useRef(false);
+  const isRedirecting = useRef(false);
+
   useEffect(() => {
-    // Redirect if no room code
     if (!roomCode) {
       router.push("/play");
     }
   }, [roomCode, router]);
 
-  // Redirect to game controller when game starts
+  // Reset re-join flag on disconnect so we re-join on reconnect
   useEffect(() => {
-    if (gameState && gameState.phase !== "lobby" && roomCode) {
-      router.push(`/play/game?code=${roomCode}`);
+    if (!isConnected) {
+      hasRejoined.current = false;
+    }
+  }, [isConnected]);
+
+  // Re-join room on page load or reconnect
+  useEffect(() => {
+    if (isConnected && roomCode && playerName && !hasRejoined.current) {
+      hasRejoined.current = true;
+      emit({
+        type: "player:join",
+        payload: { roomCode, name: playerName },
+      });
+    }
+  }, [isConnected, roomCode, playerName, emit]);
+
+  // Prefetch game page so navigation is instant when game starts
+  useEffect(() => {
+    if (roomCode) {
+      router.prefetch(`/play/game?code=${roomCode}`);
+    }
+  }, [roomCode, router]);
+
+  // Redirect to game controller when game starts (guard prevents redirect loops)
+  useEffect(() => {
+    if (
+      gameState &&
+      gameState.phase !== "lobby" &&
+      roomCode &&
+      !isRedirecting.current
+    ) {
+      isRedirecting.current = true;
+      router.replace(`/play/game?code=${roomCode}`);
+    } else if (gameState?.phase === "lobby") {
+      isRedirecting.current = false;
     }
   }, [gameState, roomCode, router]);
 
   const currentPlayer = gameState?.players.find((p) => p.name === playerName);
 
-  const handleStartGame = async () => {
+  const handleStartGame = () => {
     if (!roomCode) return;
 
-    // Unlock audio on first interaction
-    if (!isUnlocked) {
-      await unlockAudio();
-    }
-
-    // Play start game sound
-    playSound("all-ready");
-
+    // Emit immediately - don't block on audio
     emit({
       type: "game:start",
       payload: { roomCode, gameType: "quiplash" },
     });
+
+    // Audio in background (non-blocking)
+    if (!isUnlocked) {
+      unlockAudio()
+        .then(() => playSound("all-ready"))
+        .catch(() => {});
+    } else {
+      playSound("all-ready");
+    }
   };
 
   if (!roomCode) {

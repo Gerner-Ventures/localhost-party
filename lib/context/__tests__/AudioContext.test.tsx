@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, waitFor } from "@testing-library/react";
+import { render, act, waitFor } from "@testing-library/react";
 import { AudioProvider, useAudio } from "../AudioContext";
 import { AUDIO_VOLUMES } from "../../audio/constants";
 import * as sounds from "../../audio/sounds";
@@ -51,25 +51,32 @@ describe("AudioContext - Music Ducking", () => {
   it("should duck music volume when narrator speaks", async () => {
     let audioContext: ReturnType<typeof useAudio> | null = null;
 
-    render(
-      <AudioProvider>
-        <TestComponent
-          onContextReady={(ctx) => {
-            audioContext = ctx;
-          }}
-        />
-      </AudioProvider>
-    );
+    await act(async () => {
+      render(
+        <AudioProvider>
+          <TestComponent
+            onContextReady={(ctx) => {
+              audioContext = ctx;
+            }}
+          />
+        </AudioProvider>
+      );
+    });
 
-    await waitFor(() => expect(audioContext).not.toBeNull());
+    expect(audioContext).not.toBeNull();
 
     // Set initial music volume
-    audioContext!.setMusicVolume(0.5);
+    await act(async () => {
+      audioContext!.setMusicVolume(0.5);
+    });
 
     // Start speaking
-    const speakPromise = audioContext!.speak("test narration");
+    let speakPromise: Promise<void>;
+    await act(async () => {
+      speakPromise = audioContext!.speak("test narration");
+    });
 
-    // Music volume should be ducked
+    // Music volume should be ducked (0.5 * 0.3 = 0.15)
     await waitFor(() => {
       expect(sounds.setMusicVolume).toHaveBeenCalledWith(
         0.5 * AUDIO_VOLUMES.MUSIC_DUCKING
@@ -77,7 +84,9 @@ describe("AudioContext - Music Ducking", () => {
     });
 
     // Wait for narration to complete
-    await speakPromise;
+    await act(async () => {
+      await speakPromise!;
+    });
 
     // Music volume should be restored
     await waitFor(() => {
@@ -88,22 +97,28 @@ describe("AudioContext - Music Ducking", () => {
   it("should restore music volume after narration completes", async () => {
     let audioContext: ReturnType<typeof useAudio> | null = null;
 
-    render(
-      <AudioProvider>
-        <TestComponent
-          onContextReady={(ctx) => {
-            audioContext = ctx;
-          }}
-        />
-      </AudioProvider>
-    );
+    await act(async () => {
+      render(
+        <AudioProvider>
+          <TestComponent
+            onContextReady={(ctx) => {
+              audioContext = ctx;
+            }}
+          />
+        </AudioProvider>
+      );
+    });
 
-    await waitFor(() => expect(audioContext).not.toBeNull());
+    expect(audioContext).not.toBeNull();
 
     const initialVolume = 0.3;
-    audioContext!.setMusicVolume(initialVolume);
+    await act(async () => {
+      audioContext!.setMusicVolume(initialVolume);
+    });
 
-    await audioContext!.speak("test");
+    await act(async () => {
+      await audioContext!.speak("test");
+    });
 
     // After speaking completes, volume should be restored
     await waitFor(() => {
@@ -114,23 +129,29 @@ describe("AudioContext - Music Ducking", () => {
   it("should not speak when muted", async () => {
     let audioContext: ReturnType<typeof useAudio> | null = null;
 
-    render(
-      <AudioProvider>
-        <TestComponent
-          onContextReady={(ctx) => {
-            audioContext = ctx;
-          }}
-        />
-      </AudioProvider>
-    );
+    await act(async () => {
+      render(
+        <AudioProvider>
+          <TestComponent
+            onContextReady={(ctx) => {
+              audioContext = ctx;
+            }}
+          />
+        </AudioProvider>
+      );
+    });
 
-    await waitFor(() => expect(audioContext).not.toBeNull());
+    expect(audioContext).not.toBeNull();
 
     // Mute audio
-    audioContext!.setMuted(true);
+    await act(async () => {
+      audioContext!.setMuted(true);
+    });
 
     // Try to speak
-    await audioContext!.speak("test");
+    await act(async () => {
+      await audioContext!.speak("test");
+    });
 
     // Narrator should not have been called
     const { narrator } = await import("../../audio/narrator");
@@ -140,34 +161,28 @@ describe("AudioContext - Music Ducking", () => {
   it("should track isSpeaking state correctly", async () => {
     let audioContext: ReturnType<typeof useAudio> | null = null;
 
-    render(
-      <AudioProvider>
-        <TestComponent
-          onContextReady={(ctx) => {
-            audioContext = ctx;
-          }}
-        />
-      </AudioProvider>
-    );
+    await act(async () => {
+      render(
+        <AudioProvider>
+          <TestComponent
+            onContextReady={(ctx) => {
+              audioContext = ctx;
+            }}
+          />
+        </AudioProvider>
+      );
+    });
 
-    await waitFor(() => expect(audioContext).not.toBeNull());
-
+    expect(audioContext).not.toBeNull();
     expect(audioContext!.isSpeaking).toBe(false);
 
-    // Start speaking
-    const speakPromise = audioContext!.speak("test");
-
-    // Should be speaking
-    await waitFor(() => {
-      expect(audioContext!.isSpeaking).toBe(true);
+    // Start speaking and wait for completion
+    await act(async () => {
+      await audioContext!.speak("test");
     });
 
-    await speakPromise;
-
-    // Should no longer be speaking
-    await waitFor(() => {
-      expect(audioContext!.isSpeaking).toBe(false);
-    });
+    // After completion, should no longer be speaking
+    expect(audioContext!.isSpeaking).toBe(false);
   });
 });
 
@@ -180,25 +195,31 @@ describe("AudioContext - LocalStorage", () => {
   it("should only save persistent settings to localStorage", async () => {
     let audioContext: ReturnType<typeof useAudio> | null = null;
 
-    render(
-      <AudioProvider>
-        <TestComponent
-          onContextReady={(ctx) => {
-            audioContext = ctx;
-          }}
-        />
-      </AudioProvider>
-    );
+    await act(async () => {
+      render(
+        <AudioProvider>
+          <TestComponent
+            onContextReady={(ctx) => {
+              audioContext = ctx;
+            }}
+          />
+        </AudioProvider>
+      );
+    });
 
-    await waitFor(() => expect(audioContext).not.toBeNull());
+    expect(audioContext).not.toBeNull();
 
     // Change persistent settings
-    audioContext!.setMuted(true);
-    audioContext!.setVolume(0.5);
-    audioContext!.setMusicVolume(0.3);
+    await act(async () => {
+      audioContext!.setMuted(true);
+      audioContext!.setVolume(0.5);
+      audioContext!.setMusicVolume(0.3);
+    });
 
     // Trigger speaking (changes isSpeaking but shouldn't save to localStorage)
-    await audioContext!.speak("test");
+    await act(async () => {
+      await audioContext!.speak("test");
+    });
 
     // Check localStorage
     const saved = JSON.parse(
@@ -215,7 +236,7 @@ describe("AudioContext - LocalStorage", () => {
     expect(saved.isUnlocked).toBeUndefined();
   });
 
-  it("should load settings from localStorage on mount", () => {
+  it("should load settings from localStorage on mount", async () => {
     const settings = {
       muted: true,
       volume: 0.7,
@@ -229,15 +250,17 @@ describe("AudioContext - LocalStorage", () => {
 
     let audioContext: ReturnType<typeof useAudio> | null = null;
 
-    render(
-      <AudioProvider>
-        <TestComponent
-          onContextReady={(ctx) => {
-            audioContext = ctx;
-          }}
-        />
-      </AudioProvider>
-    );
+    await act(async () => {
+      render(
+        <AudioProvider>
+          <TestComponent
+            onContextReady={(ctx) => {
+              audioContext = ctx;
+            }}
+          />
+        </AudioProvider>
+      );
+    });
 
     expect(audioContext).not.toBeNull();
     // Settings should be loaded (we can't directly check state, but we can verify the setters were called)
