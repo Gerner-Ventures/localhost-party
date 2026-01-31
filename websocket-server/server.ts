@@ -19,37 +19,32 @@ import "dotenv/config";
 import { createServer, IncomingMessage, ServerResponse } from "http";
 import { Server } from "socket.io";
 import crypto from "crypto";
+// Quiplash-specific imports (not yet in shared handlers)
 import {
-  initializeQuiplashGame,
   handleSubmission,
   handleVote,
   advanceToNextRound,
   applyScoresToPlayers,
 } from "../lib/games/quiplash";
+// Shared game handlers - single source of truth for game logic
 import {
-  initializePixelShowdownGame,
-  handleAnswer as handleTriviaAnswer,
-  judgeMultipleChoiceAnswer,
-  applyJudgment,
-  updateStreak,
-  applyPointsToPlayer,
-  allPlayersAnswered,
-  transitionToAnswerReveal,
-  transitionToLeaderboard,
-  advanceToNextQuestion,
-  advanceToNextRound as advanceToNextTriviaRound,
-  setQuestionQueue,
-  startQuestions,
-  getRandomCategory,
-  getDifficultyForRound,
-} from "../lib/games/pixel-showdown";
+  initializeGame,
+  generateTriviaQuestions,
+  handleTriviaAnswerMC,
+  handleTriviaAnswerFreeText,
+  transitionAfterAllAnswered,
+  transitionToLeaderboardPhase,
+  advanceTrivia,
+  advanceTriviaRound,
+  setTriviaQuestions,
+  startTriviaQuestions,
+  getApiBaseUrl,
+} from "../lib/games/handlers";
+import { allPlayersAnswered } from "../lib/games/pixel-showdown";
 import { logDebug, logInfo, logWarn, logError } from "../lib/logger";
 import type { GameState } from "../lib/types/game";
 import type { Player } from "../lib/types/player";
-import type {
-  PixelShowdownState,
-  TriviaQuestion,
-} from "../lib/types/pixel-showdown";
+import type { PixelShowdownState } from "../lib/types/pixel-showdown";
 
 const port = parseInt(process.env.PORT || "3001", 10);
 
@@ -489,56 +484,41 @@ io.on("connection", (socket) => {
       return;
     }
 
-    if (gameType === "quiplash") {
-      room.gameState = initializeQuiplashGame(roomCode, room.players);
-    } else if (gameType === "pixel-showdown") {
-      room.gameState = initializePixelShowdownGame(roomCode, room.players);
+    // Use shared game initialization
+    const { gameState: newGameState } = initializeGame(
+      gameType,
+      roomCode,
+      room.players
+    );
+    room.gameState = newGameState as Room["gameState"];
 
+    if (gameType === "pixel-showdown") {
       // Generate questions for first round asynchronously
-      const triviaState = room.gameState as PixelShowdownState;
-      const category = getRandomCategory(triviaState.config);
-      const difficulty = getDifficultyForRound(1, triviaState.config);
+      const apiBaseUrl = getApiBaseUrl();
+      generateTriviaQuestions({
+        apiBaseUrl,
+        state: room.gameState as PixelShowdownState,
+        onQuestionsReady: (questions, _category) => {
+          room.gameState = setTriviaQuestions(
+            room.gameState as PixelShowdownState,
+            questions
+          );
+          room.gameState.players = room.players;
+          broadcastGameState(roomCode);
 
-      // Use the app URL to call the API
-      const appUrl =
-        process.env.NEXT_PUBLIC_LH_PARTY_APP_URL || "http://localhost:3000";
-      fetch(`${appUrl}/api/trivia/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          category,
-          difficulty,
-          count: triviaState.config.questionsPerRound,
-        }),
-      })
-        .then((res) => res.json())
-        .then((data: { questions: TriviaQuestion[]; category: string }) => {
-          if (data.questions && data.questions.length > 0) {
-            room.gameState = setQuestionQueue(
-              room.gameState as PixelShowdownState,
-              data.questions
+          // Auto-advance to first question after category announcement
+          setTimeout(() => {
+            room.gameState = startTriviaQuestions(
+              room.gameState as PixelShowdownState
             );
             room.gameState.players = room.players;
             broadcastGameState(roomCode);
-
-            // Auto-advance to first question after category announcement
-            setTimeout(() => {
-              room.gameState = startQuestions(
-                room.gameState as PixelShowdownState
-              );
-              room.gameState.players = room.players;
-              broadcastGameState(roomCode);
-            }, 3000);
-          }
-        })
-        .catch((error) => {
+          }, 3000);
+        },
+        onError: (error) => {
           logError("Trivia", "Failed to generate questions", error);
-        });
-    } else {
-      room.gameState.gameType = gameType;
-      room.gameState.phase = "prompt";
-      room.gameState.currentRound = 1;
-      room.gameState.players = room.players;
+        },
+      });
     }
 
     broadcastGameState(roomCode);
@@ -671,57 +651,42 @@ io.on("connection", (socket) => {
       broadcastGameState(roomCode);
     } else if (room.gameState.gameType === "pixel-showdown") {
       const triviaState = room.gameState as PixelShowdownState;
-      room.gameState = advanceToNextTriviaRound(triviaState);
+      room.gameState = advanceTriviaRound(triviaState);
       room.gameState.players = room.players;
       broadcastGameState(roomCode);
 
       // If we're in category_announce, generate questions for next round
       const newState = room.gameState as PixelShowdownState;
       if (newState.phase === "category_announce") {
-        const category = getRandomCategory(newState.config);
-        const difficulty = getDifficultyForRound(
-          newState.currentRound,
-          newState.config
-        );
-        const appUrl =
-          process.env.NEXT_PUBLIC_LH_PARTY_APP_URL || "http://localhost:3000";
+        const apiBaseUrl = getApiBaseUrl();
+        generateTriviaQuestions({
+          apiBaseUrl,
+          state: newState,
+          onQuestionsReady: (questions, _category) => {
+            room.gameState = setTriviaQuestions(
+              room.gameState as PixelShowdownState,
+              questions
+            );
+            room.gameState.players = room.players;
+            broadcastGameState(roomCode);
 
-        fetch(`${appUrl}/api/trivia/generate`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            category,
-            difficulty,
-            count: newState.config.questionsPerRound,
-          }),
-        })
-          .then((res) => res.json())
-          .then((data: { questions: TriviaQuestion[]; category: string }) => {
-            if (data.questions && data.questions.length > 0) {
-              room.gameState = setQuestionQueue(
-                room.gameState as PixelShowdownState,
-                data.questions
+            // Auto-advance to first question
+            setTimeout(() => {
+              room.gameState = startTriviaQuestions(
+                room.gameState as PixelShowdownState
               );
               room.gameState.players = room.players;
               broadcastGameState(roomCode);
-
-              // Auto-advance to first question
-              setTimeout(() => {
-                room.gameState = startQuestions(
-                  room.gameState as PixelShowdownState
-                );
-                room.gameState.players = room.players;
-                broadcastGameState(roomCode);
-              }, 3000);
-            }
-          })
-          .catch((error) => {
+            }, 3000);
+          },
+          onError: (error) => {
             logError(
               "Trivia",
               "Failed to generate questions for next round",
               error
             );
-          });
+          },
+        });
       }
     }
   });
@@ -796,88 +761,32 @@ io.on("connection", (socket) => {
       `Answer from "${socket.data.playerName}" in room ${roomCode}`
     );
 
-    // Handle the answer
-    room.gameState = handleTriviaAnswer(
-      state,
-      socket.data.playerId,
-      socket.data.playerName,
-      answer,
-      timestamp
-    );
+    const currentQuestion = state.currentQuestion;
 
-    const updatedState = room.gameState as PixelShowdownState;
-    const currentQuestion = updatedState.currentQuestion!;
-
-    // Judge the answer
-    let isCorrect = false;
+    // Use shared handlers for answer processing
     if (currentQuestion.type === "multiple_choice") {
-      isCorrect = judgeMultipleChoiceAnswer(currentQuestion, answer);
-      room.gameState = applyJudgment(
-        updatedState,
+      const result = handleTriviaAnswerMC(
+        state,
         socket.data.playerId,
-        isCorrect
+        socket.data.playerName,
+        answer,
+        timestamp,
+        room.players
       );
-      room.gameState = updateStreak(
-        room.gameState as PixelShowdownState,
-        socket.data.playerId,
-        isCorrect
-      );
-
-      // Apply points if correct
-      if (isCorrect) {
-        const playerAnswer = (
-          room.gameState as PixelShowdownState
-        ).answers.find((a) => a.playerId === socket.data.playerId);
-        if (playerAnswer?.pointsAwarded) {
-          applyPointsToPlayer(
-            room.players,
-            socket.data.playerId,
-            playerAnswer.pointsAwarded
-          );
-        }
-      }
+      room.gameState = result.updatedState;
     } else if (currentQuestion.type === "free_text") {
-      // Use AI judging for free text
-      const appUrl =
-        process.env.NEXT_PUBLIC_LH_PARTY_APP_URL || "http://localhost:3000";
       try {
-        const judgeResponse = await fetch(`${appUrl}/api/trivia/judge`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            questionText: currentQuestion.text,
-            correctAnswer: currentQuestion.correctAnswer,
-            playerAnswer: answer,
-            acceptableAnswers: currentQuestion.acceptableAnswers,
-          }),
-        });
-        const judgment = await judgeResponse.json();
-        isCorrect = judgment.isCorrect;
-
-        room.gameState = applyJudgment(
-          room.gameState as PixelShowdownState,
+        const apiBaseUrl = getApiBaseUrl();
+        const result = await handleTriviaAnswerFreeText(
+          state,
           socket.data.playerId,
-          isCorrect,
-          judgment.confidence
+          socket.data.playerName,
+          answer,
+          timestamp,
+          room.players,
+          apiBaseUrl
         );
-        room.gameState = updateStreak(
-          room.gameState as PixelShowdownState,
-          socket.data.playerId,
-          isCorrect
-        );
-
-        if (isCorrect) {
-          const playerAnswer = (
-            room.gameState as PixelShowdownState
-          ).answers.find((a) => a.playerId === socket.data.playerId);
-          if (playerAnswer?.pointsAwarded) {
-            applyPointsToPlayer(
-              room.players,
-              socket.data.playerId,
-              playerAnswer.pointsAwarded
-            );
-          }
-        }
+        room.gameState = result.updatedState;
       } catch (error) {
         logError("Trivia", "Failed to judge answer", error);
       }
@@ -889,7 +798,7 @@ io.on("connection", (socket) => {
     // Check if all players have answered
     if (allPlayersAnswered(room.gameState as PixelShowdownState)) {
       setTimeout(() => {
-        room.gameState = transitionToAnswerReveal(
+        room.gameState = transitionAfterAllAnswered(
           room.gameState as PixelShowdownState
         );
         room.gameState.players = room.players;
@@ -897,7 +806,7 @@ io.on("connection", (socket) => {
 
         // Auto-advance to leaderboard after reveal
         setTimeout(() => {
-          room.gameState = transitionToLeaderboard(
+          room.gameState = transitionToLeaderboardPhase(
             room.gameState as PixelShowdownState
           );
           room.gameState.players = room.players;
@@ -929,57 +838,42 @@ io.on("connection", (socket) => {
 
     logInfo("Trivia", `Advancing to next question in room ${roomCode}`);
 
-    room.gameState = advanceToNextQuestion(state);
+    room.gameState = advanceTrivia(state);
     room.gameState.players = room.players;
     broadcastGameState(roomCode);
 
     // If we transitioned to category_announce, generate questions for next round
     const newState = room.gameState as PixelShowdownState;
     if (newState.phase === "category_announce") {
-      const category = getRandomCategory(newState.config);
-      const difficulty = getDifficultyForRound(
-        newState.currentRound,
-        newState.config
-      );
-      const appUrl =
-        process.env.NEXT_PUBLIC_LH_PARTY_APP_URL || "http://localhost:3000";
+      const apiBaseUrl = getApiBaseUrl();
+      generateTriviaQuestions({
+        apiBaseUrl,
+        state: newState,
+        onQuestionsReady: (questions, _category) => {
+          room.gameState = setTriviaQuestions(
+            room.gameState as PixelShowdownState,
+            questions
+          );
+          room.gameState.players = room.players;
+          broadcastGameState(roomCode);
 
-      fetch(`${appUrl}/api/trivia/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          category,
-          difficulty,
-          count: newState.config.questionsPerRound,
-        }),
-      })
-        .then((res) => res.json())
-        .then((data: { questions: TriviaQuestion[]; category: string }) => {
-          if (data.questions && data.questions.length > 0) {
-            room.gameState = setQuestionQueue(
-              room.gameState as PixelShowdownState,
-              data.questions
+          // Auto-advance to first question
+          setTimeout(() => {
+            room.gameState = startTriviaQuestions(
+              room.gameState as PixelShowdownState
             );
             room.gameState.players = room.players;
             broadcastGameState(roomCode);
-
-            // Auto-advance to first question
-            setTimeout(() => {
-              room.gameState = startQuestions(
-                room.gameState as PixelShowdownState
-              );
-              room.gameState.players = room.players;
-              broadcastGameState(roomCode);
-            }, 3000);
-          }
-        })
-        .catch((error) => {
+          }, 3000);
+        },
+        onError: (error) => {
           logError(
             "Trivia",
             "Failed to generate questions for next round",
             error
           );
-        });
+        },
+      });
     }
   });
 
