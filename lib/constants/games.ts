@@ -3,7 +3,7 @@
 
 export const GAME_IDS = [
   "quiplash",
-  "game-1",
+  "pixel-showdown",
   "game-2",
   "game-3",
   "game-4",
@@ -22,10 +22,11 @@ export const PLACEHOLDER_GAMES = [
     icon: "💬",
   },
   {
-    id: "game-1" as GameId,
+    id: "pixel-showdown" as GameId,
     name: "Pixel Showdown",
-    description: "Battle your friends in this fast-paced trivia challenge",
-    playerCount: "3-8 players",
+    description:
+      "Speed trivia with AI-generated questions! Answer fast, build streaks, dominate the leaderboard",
+    playerCount: "2-8 players",
     color: "cyan" as const,
     icon: "🎮",
   },

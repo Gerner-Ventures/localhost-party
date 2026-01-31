@@ -87,6 +87,25 @@ RULES:
       cooldownMs: 0,
       priority: 100,
     },
+    // Pixel Showdown (Trivia) triggers
+    {
+      event: "trivia:category-announce",
+      probability: 1.0,
+      cooldownMs: 0,
+      priority: 100,
+    },
+    {
+      event: "trivia:answer-revealed",
+      probability: 1.0,
+      cooldownMs: 0,
+      priority: 95,
+    },
+    {
+      event: "trivia:hot-streak",
+      probability: 0.9,
+      cooldownMs: 8000,
+      priority: 85,
+    },
   ],
 };
 
@@ -102,6 +121,13 @@ export function getHostPromptContext(
     currentRound?: number;
     winnerName?: string;
     scores?: Record<string, number>;
+    // Trivia context
+    category?: string;
+    questionNumber?: number;
+    correctAnswer?: string;
+    correctPlayers?: string[];
+    streakPlayer?: string;
+    streakCount?: number;
   }
 ): string {
   switch (event) {
@@ -138,6 +164,22 @@ export function getHostPromptContext(
         : [];
       const winner = sortedScores[0]?.[0];
       return `The game is over! ${winner ? `${winner} is the champion!` : ""} Celebrate the winner and thank everyone for playing.`;
+
+    // Pixel Showdown (Trivia) prompts
+    case "trivia:category-announce":
+      return `The next category is ${context.category}! Build excitement and maybe drop a hint about what's coming.`;
+
+    case "trivia:answer-revealed":
+      if (!context.correctPlayers?.length) {
+        return `Nobody got it right! The answer was "${context.correctAnswer}". React with playful surprise or sympathy.`;
+      }
+      if (context.correctPlayers.length === 1) {
+        return `Only ${context.correctPlayers[0]} got it right! The answer was "${context.correctAnswer}". Celebrate their knowledge!`;
+      }
+      return `${context.correctPlayers.join(" and ")} got it right! The answer was "${context.correctAnswer}". Give them quick props!`;
+
+    case "trivia:hot-streak":
+      return `${context.streakPlayer} is on a ${context.streakCount}-answer hot streak! Hype them up - they're on fire!`;
 
     default:
       return "";

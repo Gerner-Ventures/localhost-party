@@ -44,6 +44,22 @@ export interface AgentTogglePayload {
   enabled: boolean;
 }
 
+// Pixel Showdown trivia payloads
+export interface TriviaAnswerPayload {
+  roomCode: string;
+  answer: string;
+  timestamp: number;
+}
+
+export interface TriviaBuzzerPayload {
+  roomCode: string;
+  timestamp: number;
+}
+
+export interface TriviaNextQuestionPayload {
+  roomCode: string;
+}
+
 export type WebSocketEvent =
   | { type: "display:join"; payload: { roomCode: string } }
   | { type: "player:join"; payload: { roomCode: string; name: string } }
@@ -57,4 +73,8 @@ export type WebSocketEvent =
   | { type: "player:submit"; payload: SubmitPayload }
   | { type: "player:vote"; payload: VotePayload }
   | { type: "agent:speak"; payload: AgentSpeakPayload }
-  | { type: "agent:toggle"; payload: AgentTogglePayload };
+  | { type: "agent:toggle"; payload: AgentTogglePayload }
+  // Pixel Showdown trivia events
+  | { type: "trivia:answer"; payload: TriviaAnswerPayload }
+  | { type: "trivia:buzz"; payload: TriviaBuzzerPayload }
+  | { type: "trivia:next-question"; payload: TriviaNextQuestionPayload };
