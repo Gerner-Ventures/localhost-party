@@ -1,5 +1,6 @@
 import type { GameState } from "../../types/game";
 import type { GameEvent, GameEventContext } from "../personas/types";
+import { DEFAULT_QUIPLASH_CONFIG } from "../../games/quiplash";
 
 /**
  * Detects game events by comparing previous and current game states.
@@ -219,8 +220,7 @@ export class EventDetector {
    * Check if the game is complete
    */
   private isGameComplete(state: GameState): boolean {
-    // Quiplash typically has 3 rounds
-    const totalRounds = 3;
+    const totalRounds = DEFAULT_QUIPLASH_CONFIG.roundsPerGame;
     return (
       state.phase === "results" &&
       state.currentRound >= totalRounds &&

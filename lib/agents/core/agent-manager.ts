@@ -13,6 +13,7 @@ import {
   getCommentatorPromptContext,
 } from "../personas/commentator";
 import { getAgentVoice } from "../personas/voice-config";
+import { logDebug, logInfo, logWarn, logError } from "../../logger";
 import { AgentRateLimiter } from "./rate-limiter";
 import { EventDetector } from "./event-detector";
 
@@ -39,8 +40,9 @@ export class AgentManager {
     if (apiKey) {
       this.anthropic = new Anthropic({ apiKey });
     } else {
-      console.warn(
-        "[AgentManager] No Anthropic API key found. AI agents will be disabled."
+      logWarn(
+        "Agent",
+        "No Anthropic API key found. AI agents will be disabled."
       );
     }
 
@@ -54,7 +56,7 @@ export class AgentManager {
    */
   registerPersona(persona: AgentPersona): void {
     this.personas.set(persona.id, persona);
-    console.log(`[AgentManager] Registered persona: ${persona.name}`);
+    logInfo("Agent", `Registered persona: ${persona.name}`);
   }
 
   /**
@@ -71,7 +73,7 @@ export class AgentManager {
     }
 
     const previousState = this.previousStates.get(roomCode) || null;
-    this.previousStates.set(roomCode, { ...currentState });
+    this.previousStates.set(roomCode, structuredClone(currentState));
 
     // Detect events from state change
     const events = this.eventDetector.detectEvents(previousState, currentState);
@@ -127,9 +129,7 @@ export class AgentManager {
       // Check global rate limit
       const canSpeak = this.rateLimiter.canSpeak();
       if (!canSpeak.allowed) {
-        console.log(
-          `[AgentManager] Rate limited ${persona.name}: ${canSpeak.reason}`
-        );
+        logDebug("Agent", `Rate limited ${persona.name}: ${canSpeak.reason}`);
         continue;
       }
 
@@ -145,8 +145,9 @@ export class AgentManager {
           );
         }
       } catch (error) {
-        console.error(
-          `[AgentManager] Error generating response for ${persona.name}:`,
+        logError(
+          "Agent",
+          `Error generating response for ${persona.name}`,
           error
         );
       }
@@ -232,7 +233,7 @@ Respond in character with a brief spoken line (1-3 sentences max).`;
         timestamp: Date.now(),
       };
     } catch (error) {
-      console.error(`[AgentManager] Claude API error:`, error);
+      logError("Agent", "Claude API error", error);
       return null;
     }
   }

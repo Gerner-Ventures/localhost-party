@@ -763,14 +763,16 @@ app.prepare().then(() => {
     });
 
     // Agent toggle (enable/disable AI commentary)
-    socket.on("agent:toggle", ({ enabled, roomCode }) => {
+    socket.on("agent:toggle", ({ enabled }) => {
       if (typeof enabled !== "boolean") {
         socket.emit("player:error", { message: "Invalid enabled value" });
         return;
       }
 
-      if (!isValidRoomCode(roomCode)) {
-        socket.emit("player:error", { message: "Invalid room code" });
+      // Use roomCode from socket session (set during player:join / display:join)
+      const roomCode = socket.data.roomCode;
+      if (!roomCode) {
+        socket.emit("player:error", { message: "Not in a room" });
         return;
       }
 

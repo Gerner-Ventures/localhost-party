@@ -1,30 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
+import { chipSterling } from "@/lib/agents/personas/host";
 
 // Rate limiting - simple in-memory store
 const requestCounts = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT = 10; // requests per minute
 const RATE_WINDOW_MS = 60000;
-const CLEANUP_INTERVAL_MS = 5 * 60000; // Clean up every 5 minutes
-
-// Clean up expired entries to prevent memory leaks
-function cleanupExpiredEntries(): void {
-  const now = Date.now();
-  for (const [ip, record] of requestCounts.entries()) {
-    if (now > record.resetAt) {
-      requestCounts.delete(ip);
-    }
-  }
-}
-
-// Run cleanup periodically
-setInterval(cleanupExpiredEntries, CLEANUP_INTERVAL_MS);
 
 function isRateLimited(ip: string): boolean {
   const now = Date.now();
   const record = requestCounts.get(ip);
 
   if (!record || now > record.resetAt) {
+    // Expired or new entry — reset cleans up stale data inline
     requestCounts.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
     return false;
   }
@@ -37,26 +25,11 @@ function isRateLimited(ip: string): boolean {
   return false;
 }
 
-// Chip Sterling's personality for consistent voice
-const CHIP_STERLING_SYSTEM = `You are Chip Sterling, the enthusiastic host of localhost:party, a hilarious AI-powered party game arcade.
-
-PERSONALITY:
-- Warm, welcoming, and genuinely excited
-- Classic game show host energy - think a friendlier version of retro TV hosts
-- Encouraging without being cheesy, witty without being mean
-- You make everyone feel like they're about to have an amazing time
-
-SPEAKING STYLE:
-- Short, punchy sentences that work well when spoken aloud
-- Use dramatic pauses (indicated by "...")
-- Keep it brief - 1-2 sentences max
-- Never use emojis or special characters
-- Sound natural and conversational
-
-RULES:
-- Never break character or acknowledge being an AI
-- Never use technical jargon
-- Be exciting but authentic, not over-the-top fake`;
+// Singleton Anthropic client (created once at module scope)
+const anthropicApiKey = process.env.LH_PARTY_ANTHROPIC_API_KEY;
+const anthropicClient = anthropicApiKey
+  ? new Anthropic({ apiKey: anthropicApiKey })
+  : null;
 
 type NarrationType = "welcome" | "game-hover" | "game-select";
 
@@ -105,9 +78,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Check for API key
-  const apiKey = process.env.LH_PARTY_ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  if (!anthropicClient) {
     return NextResponse.json(
       { error: "AI narration not configured" },
       { status: 503 }
@@ -124,14 +95,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const anthropic = new Anthropic({ apiKey });
     const userPrompt = prompts[body.type](body);
 
-    const response = await anthropic.messages.create({
+    const response = await anthropicClient.messages.create({
       model: "claude-sonnet-4-20250514",
       max_tokens: 100,
       temperature: 0.8,
-      system: CHIP_STERLING_SYSTEM,
+      system: chipSterling.personality,
       messages: [{ role: "user", content: userPrompt }],
     });
 

@@ -42,7 +42,6 @@ export interface AgentSpeakPayload {
 // Agent toggle payload
 export interface AgentTogglePayload {
   enabled: boolean;
-  agentIds?: string[]; // If omitted, toggles all agents
 }
 
 export type WebSocketEvent =

@@ -4,6 +4,11 @@
  *
  * IMPORTANT: Game logic is imported from ../lib/ (single source of truth).
  * Do NOT duplicate game logic here.
+ *
+ * NOTE: AI agent commentary (agent:speak, agent:toggle) is NOT yet supported
+ * in this standalone server. Agents currently only work in the combined
+ * Next.js server (server.ts). This is a known limitation for the initial
+ * release — agent support will be added here in a future iteration.
  */
 import "dotenv/config";
 
