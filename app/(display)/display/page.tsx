@@ -153,6 +153,7 @@ function DisplayContent() {
         <RoomLobby roomCode={roomCode} players={gameState.players} />
       )}
 
+      {/* Quiplash phases */}
       {["prompt", "submit", "vote"].includes(gameState.phase) && (
         <GameBoard gameState={gameState} />
       )}
@@ -160,6 +161,16 @@ function DisplayContent() {
       {gameState.phase === "results" && (
         <Leaderboard players={gameState.players} />
       )}
+
+      {/* Pixel Showdown phases */}
+      {[
+        "category_announce",
+        "question",
+        "answer_reveal",
+        "leaderboard",
+        "round_results",
+        "game_results",
+      ].includes(gameState.phase) && <GameBoard gameState={gameState} />}
 
       {/* AI Agent Toggle */}
       <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2">
