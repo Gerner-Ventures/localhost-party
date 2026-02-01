@@ -1106,14 +1106,38 @@ app.prepare().then(() => {
 
     // ============================================
     // DEBUG PANEL HANDLERS
+    // Only available in development and to display clients
     // ============================================
+
+    // Helper to validate debug requests
+    const validateDebugRequest = (roomCode: string): boolean => {
+      // Only allow in development
+      if (process.env.NODE_ENV === "production") {
+        socket.emit("player:error", {
+          message: "Debug commands not available in production",
+        });
+        return false;
+      }
+
+      // Only allow from display clients
+      if (!socket.data.isDisplay) {
+        socket.emit("player:error", {
+          message: "Debug commands only available to display",
+        });
+        return false;
+      }
+
+      if (!isValidRoomCode(roomCode)) {
+        socket.emit("player:error", { message: "Invalid room code" });
+        return false;
+      }
+
+      return true;
+    };
 
     // Debug: Set game phase directly
     socket.on("debug:set-phase", ({ roomCode, phase }) => {
-      if (!isValidRoomCode(roomCode)) {
-        socket.emit("player:error", { message: "Invalid room code" });
-        return;
-      }
+      if (!validateDebugRequest(roomCode)) return;
 
       const room = sharedRooms.get(roomCode);
       if (!room) {
@@ -1129,10 +1153,7 @@ app.prepare().then(() => {
 
     // Debug: Add a fake player
     socket.on("debug:add-player", ({ roomCode, name }) => {
-      if (!isValidRoomCode(roomCode)) {
-        socket.emit("player:error", { message: "Invalid room code" });
-        return;
-      }
+      if (!validateDebugRequest(roomCode)) return;
 
       const room = sharedRooms.get(roomCode);
       if (!room) {
@@ -1172,10 +1193,7 @@ app.prepare().then(() => {
 
     // Debug: Remove a player
     socket.on("debug:remove-player", ({ roomCode, playerId }) => {
-      if (!isValidRoomCode(roomCode)) {
-        socket.emit("player:error", { message: "Invalid room code" });
-        return;
-      }
+      if (!validateDebugRequest(roomCode)) return;
 
       const room = sharedRooms.get(roomCode);
       if (!room) {
@@ -1202,10 +1220,7 @@ app.prepare().then(() => {
 
     // Debug: Set player score
     socket.on("debug:set-score", ({ roomCode, playerId, score }) => {
-      if (!isValidRoomCode(roomCode)) {
-        socket.emit("player:error", { message: "Invalid room code" });
-        return;
-      }
+      if (!validateDebugRequest(roomCode)) return;
 
       const room = sharedRooms.get(roomCode);
       if (!room) {
@@ -1238,10 +1253,7 @@ app.prepare().then(() => {
 
     // Debug: Set partial game state
     socket.on("debug:set-state", ({ roomCode, partialState }) => {
-      if (!isValidRoomCode(roomCode)) {
-        socket.emit("player:error", { message: "Invalid room code" });
-        return;
-      }
+      if (!validateDebugRequest(roomCode)) return;
 
       const room = sharedRooms.get(roomCode);
       if (!room) {

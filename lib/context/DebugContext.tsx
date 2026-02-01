@@ -134,7 +134,7 @@ export function DebugProvider({ children }: DebugProviderProps) {
 
     return () => {
       socket.offAny(handleAnyEvent);
-      socketInterceptedRef.current = false;
+      // Don't reset socketInterceptedRef - prevents duplicate listeners on reconnect
     };
   }, [socket]);
 

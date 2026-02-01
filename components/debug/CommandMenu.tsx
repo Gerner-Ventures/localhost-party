@@ -111,9 +111,13 @@ export function CommandMenu() {
           ? `Copy "${roomCode}" to clipboard`
           : "No room code available",
         category: "Game",
-        action: () => {
+        action: async () => {
           if (roomCode) {
-            navigator.clipboard.writeText(roomCode);
+            try {
+              await navigator.clipboard.writeText(roomCode);
+            } catch (error) {
+              console.warn("Failed to copy room code:", error);
+            }
           }
           setIsOpen(false);
         },

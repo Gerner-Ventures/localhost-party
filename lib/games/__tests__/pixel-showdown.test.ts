@@ -434,7 +434,7 @@ describe("Pixel Showdown Game Logic", () => {
       expect(state.phase).toBe("category_announce");
       expect(state.questionNumber).toBe(0);
       expect(state.questionQueue).toEqual([]);
-      expect(state.currentCategory).toBeUndefined();
+      expect(state.currentCategory).toBe("Loading...");
     });
 
     it("should transition to game_results after final round", () => {
