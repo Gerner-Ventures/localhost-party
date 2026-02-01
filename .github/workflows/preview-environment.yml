@@ -100,7 +100,7 @@ jobs:
 
       - name: Deploy WebSocket server to Railway preview
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PREVIEW }}
         run: |
           railway link --project ${{ secrets.RAILWAY_PROJECT_ID }} --environment preview
           railway up --detach
