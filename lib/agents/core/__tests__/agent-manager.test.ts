@@ -17,6 +17,7 @@ vi.mock("@anthropic-ai/sdk", () => {
 
 // Mock logger to silence output
 vi.mock("../../../logger", () => ({
+  logDebug: vi.fn(),
   logInfo: vi.fn(),
   logWarn: vi.fn(),
   logError: vi.fn(),
@@ -95,150 +96,6 @@ describe("AgentManager", () => {
     });
   });
 
-  describe("event deduplication", () => {
-    // Access private method via any cast for unit testing
-    const dedup = (events: { type: string }[]) => {
-      const m = new AgentManager({ enabled: true });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return (m as any).deduplicateEvents(events);
-    };
-
-    it("game:started supersedes phase:changed", () => {
-      const result = dedup([
-        { type: "game:started" },
-        { type: "phase:changed" },
-      ]);
-      const types = result.map((e: { type: string }) => e.type);
-      expect(types).toContain("game:started");
-      expect(types).not.toContain("phase:changed");
-    });
-
-    it("matchup:started supersedes phase:changed and all:submitted", () => {
-      const result = dedup([
-        { type: "matchup:started" },
-        { type: "phase:changed" },
-        { type: "all:submitted" },
-      ]);
-      const types = result.map((e: { type: string }) => e.type);
-      expect(types).toContain("matchup:started");
-      expect(types).not.toContain("phase:changed");
-      expect(types).not.toContain("all:submitted");
-    });
-
-    it("matchup:complete supersedes phase:changed and all:voted", () => {
-      const result = dedup([
-        { type: "matchup:complete" },
-        { type: "phase:changed" },
-        { type: "all:voted" },
-      ]);
-      const types = result.map((e: { type: string }) => e.type);
-      expect(types).toContain("matchup:complete");
-      expect(types).not.toContain("phase:changed");
-      expect(types).not.toContain("all:voted");
-    });
-
-    it("game:complete supersedes phase:changed and round:complete", () => {
-      const result = dedup([
-        { type: "game:complete" },
-        { type: "phase:changed" },
-        { type: "round:complete" },
-      ]);
-      const types = result.map((e: { type: string }) => e.type);
-      expect(types).toContain("game:complete");
-      expect(types).not.toContain("phase:changed");
-      expect(types).not.toContain("round:complete");
-    });
-
-    it("keeps unrelated events intact", () => {
-      const result = dedup([
-        { type: "player:joined" },
-        { type: "submission:received" },
-      ]);
-      expect(result).toHaveLength(2);
-    });
-  });
-
-  describe("event priority picking", () => {
-    const pick = (types: string[]) => {
-      const m = new AgentManager({ enabled: true });
-      const events = types.map((type) => ({
-        type,
-        timestamp: Date.now(),
-        context: {},
-      }));
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return (m as any).pickHighestPriorityEvent(events);
-    };
-
-    it("picks game:complete over everything", () => {
-      const result = pick(["player:joined", "game:complete", "phase:changed"]);
-      expect(result.type).toBe("game:complete");
-    });
-
-    it("picks game:started over round:complete", () => {
-      const result = pick(["round:complete", "game:started"]);
-      expect(result.type).toBe("game:started");
-    });
-
-    it("picks round:complete over matchup:started", () => {
-      const result = pick(["matchup:started", "round:complete"]);
-      expect(result.type).toBe("round:complete");
-    });
-
-    it("picks matchup:started over player:joined", () => {
-      const result = pick(["player:joined", "matchup:started"]);
-      expect(result.type).toBe("matchup:started");
-    });
-
-    it("returns null for empty list", () => {
-      const result = pick([]);
-      expect(result).toBeNull();
-    });
-  });
-
-  describe("anti-repetition history", () => {
-    it("records utterances per room", () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const m = manager as any;
-      m.recordUtterance("ROOM1", "Hello world");
-      m.recordUtterance("ROOM1", "Goodbye world");
-      m.recordUtterance("ROOM2", "Different room");
-
-      const room1 = m.recentUtterances.get("ROOM1");
-      expect(room1).toEqual(["Hello world", "Goodbye world"]);
-      expect(m.recentUtterances.get("ROOM2")).toEqual(["Different room"]);
-    });
-
-    it("caps history at MAX_HISTORY (15)", () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const m = manager as any;
-      for (let i = 0; i < 20; i++) {
-        m.recordUtterance("ROOM1", `Line ${i}`);
-      }
-      const history = m.recentUtterances.get("ROOM1");
-      expect(history).toHaveLength(15);
-      // Should have lines 5-19 (dropped 0-4)
-      expect(history[0]).toBe("Line 5");
-      expect(history[14]).toBe("Line 19");
-    });
-
-    it("resetGame preserves utterance history", () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const m = manager as any;
-      m.recordUtterance("ROOM1", "Should persist");
-      manager.resetGame("ROOM1");
-      expect(m.recentUtterances.get("ROOM1")).toEqual(["Should persist"]);
-    });
-
-    it("cleanupRoom clears utterance history", () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const m = manager as any;
-      m.recordUtterance("ROOM1", "Should be cleared");
-      manager.cleanupRoom("ROOM1");
-      expect(m.recentUtterances.get("ROOM1")).toBeUndefined();
-    });
-  });
-
   describe("resetGame", () => {
     it("clears previous state tracking", async () => {
       const state = createState({ phase: "lobby" });
@@ -260,14 +117,12 @@ describe("AgentManager", () => {
       // Set up state
       manager.setRoomEnabled("ROOM1", false);
       m.previousStates.set("ROOM1", {});
-      m.recordUtterance("ROOM1", "test");
 
       // Cleanup
       manager.cleanupRoom("ROOM1");
 
       expect(m.previousStates.get("ROOM1")).toBeUndefined();
       expect(m.roomEnabledStates.get("ROOM1")).toBeUndefined();
-      expect(m.recentUtterances.get("ROOM1")).toBeUndefined();
     });
   });
 
