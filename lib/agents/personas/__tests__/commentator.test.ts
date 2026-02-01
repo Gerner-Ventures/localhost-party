@@ -34,78 +34,44 @@ describe("Snarky Sam persona", () => {
     const findTrigger = (event: string) =>
       snarkySam.triggers.find((t) => t.event === event);
 
-    it("triggers on player:joined in lobby only", () => {
-      const trigger = findTrigger("player:joined");
+    it("triggers on phase:changed for vote phase only", () => {
+      const trigger = findTrigger("phase:changed");
       expect(trigger).toBeDefined();
-      expect(trigger!.probability).toBe(0.5);
-      expect(trigger!.priority).toBe(85);
-      expect(trigger!.phaseFilter).toEqual(["lobby"]);
+      expect(trigger!.probability).toBe(1.0);
+      expect(trigger!.priority).toBe(95);
+      expect(trigger!.phaseFilter).toEqual(["vote"]);
     });
 
-    it("does NOT trigger on matchup:started (removed)", () => {
+    it("has exactly 1 trigger (vote phase only)", () => {
+      expect(snarkySam.triggers).toHaveLength(1);
+    });
+
+    it("does NOT trigger on player:joined", () => {
+      expect(findTrigger("player:joined")).toBeUndefined();
+    });
+
+    it("does NOT trigger on round:complete", () => {
+      expect(findTrigger("round:complete")).toBeUndefined();
+    });
+
+    it("does NOT trigger on game:complete", () => {
+      expect(findTrigger("game:complete")).toBeUndefined();
+    });
+
+    it("does NOT trigger on matchup:started", () => {
       expect(findTrigger("matchup:started")).toBeUndefined();
     });
 
-    it("does NOT trigger on matchup:complete (removed)", () => {
+    it("does NOT trigger on matchup:complete", () => {
       expect(findTrigger("matchup:complete")).toBeUndefined();
     });
 
-    it("triggers on round:complete with high probability", () => {
-      const trigger = findTrigger("round:complete");
-      expect(trigger).toBeDefined();
-      expect(trigger!.probability).toBe(0.7);
-      expect(trigger!.priority).toBe(90);
-    });
-
-    it("triggers on game:complete as guaranteed fallback", () => {
-      const trigger = findTrigger("game:complete");
-      expect(trigger).toBeDefined();
-      expect(trigger!.probability).toBe(1.0);
-      expect(trigger!.priority).toBe(90);
-    });
-
-    it("does NOT trigger on submission:received (Chip owns submit)", () => {
+    it("does NOT trigger on submission:received", () => {
       expect(findTrigger("submission:received")).toBeUndefined();
     });
 
-    it("does NOT trigger on all:submitted", () => {
-      expect(findTrigger("all:submitted")).toBeUndefined();
-    });
-
-    it("does NOT trigger on idle:detected", () => {
-      expect(findTrigger("idle:detected")).toBeUndefined();
-    });
-
-    it("has exactly 6 triggers", () => {
-      expect(snarkySam.triggers).toHaveLength(6);
-    });
-  });
-
-  describe("phase ownership", () => {
-    it("Sam has higher priority than Chip for player:joined in lobby", () => {
-      // Sam at 85, Chip at 80 — Sam gets first chance
-      const samTrigger = snarkySam.triggers.find(
-        (t) => t.event === "player:joined"
-      );
-      expect(samTrigger!.priority).toBe(85);
-      // Chip should be 80 (validated in host.test.ts)
-    });
-
-    it("Sam has lower priority than Chip for round:complete", () => {
-      // Sam at 90 with prob 1.0, Chip at 100 with prob 0.5
-      // Chip gets first chance (coin flip), Sam is guaranteed fallback
-      const samTrigger = snarkySam.triggers.find(
-        (t) => t.event === "round:complete"
-      );
-      expect(samTrigger!.priority).toBe(90);
-      // Chip at 100 means Chip checked first
-    });
-
-    it("Sam has lower priority than Chip for game:complete", () => {
-      const samTrigger = snarkySam.triggers.find(
-        (t) => t.event === "game:complete"
-      );
-      expect(samTrigger!.priority).toBe(90);
+    it("does NOT trigger on game:started", () => {
+      expect(findTrigger("game:started")).toBeUndefined();
     });
   });
 
@@ -133,6 +99,22 @@ describe("Snarky Sam persona", () => {
 });
 
 describe("getCommentatorPromptContext", () => {
+  describe("phase:changed (vote)", () => {
+    it("includes round number", () => {
+      const result = getCommentatorPromptContext("phase:changed", {
+        currentRound: 2,
+      });
+      expect(result).toContain("2");
+    });
+
+    it("references voting", () => {
+      const result = getCommentatorPromptContext("phase:changed", {
+        currentRound: 1,
+      });
+      expect(result.toLowerCase()).toContain("voting");
+    });
+  });
+
   describe("player:joined", () => {
     it("includes the joining player name", () => {
       const result = getCommentatorPromptContext("player:joined", {

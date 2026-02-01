@@ -43,6 +43,18 @@ describe("EventDetector", () => {
       );
     });
 
+    it("detects game:started on lobby to game transition", () => {
+      const detector = new EventDetector();
+      const prev = createState({ phase: "lobby" });
+      const curr = createState({ phase: "submit" });
+
+      const events = detector.detectEvents(prev, curr);
+
+      expect(events).toContainEqual(
+        expect.objectContaining({ type: "game:started" })
+      );
+    });
+
     it("does not emit game:started for lobby phase", () => {
       const detector = new EventDetector();
       const state = createState({ phase: "lobby" });

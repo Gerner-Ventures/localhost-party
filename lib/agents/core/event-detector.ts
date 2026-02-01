@@ -22,8 +22,11 @@ export class EventDetector {
     const now = Date.now();
     const context = this.buildContext(currentState);
 
-    // First game state update (game just started)
-    if (!previousState && currentState.phase !== "lobby") {
+    // Game started: first non-lobby state OR transition from lobby to game
+    if (
+      (!previousState && currentState.phase !== "lobby") ||
+      (previousState?.phase === "lobby" && currentState.phase !== "lobby")
+    ) {
       events.push({
         type: "game:started",
         timestamp: now,

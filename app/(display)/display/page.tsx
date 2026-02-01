@@ -15,7 +15,7 @@ function DisplayContent() {
   const searchParams = useSearchParams();
   const gameType = searchParams.get("game");
   const { gameState, emit, isConnected } = useWebSocket();
-  const { playSound, playMusic, stopMusic } = useAudio();
+  const { playMusic, stopMusic } = useAudio();
   const { agentsEnabled, setAgentsEnabled, speakingAgent } = useAgents();
   const [roomCode, setRoomCode] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
@@ -97,15 +97,11 @@ function DisplayContent() {
       stopMusic("lobby-theme", { fadeOut: AUDIO_DURATIONS.FADE_OUT_MEDIUM });
     }
 
-    // Play phase transition sound
+    // Track phase for music transitions
     if (currentPhase && currentPhase !== previousPhase.current) {
-      // Skip sound on initial load
-      if (previousPhase.current !== undefined) {
-        playSound("phase-transition");
-      }
       previousPhase.current = currentPhase;
     }
-  }, [gameState?.phase, playSound, playMusic, stopMusic]);
+  }, [gameState?.phase, playMusic, stopMusic]);
 
   // Cleanup music on unmount
   useEffect(() => {

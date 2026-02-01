@@ -47,42 +47,11 @@ RULES:
 
   triggers: [
     {
-      event: "player:joined",
-      probability: 0.5,
-      cooldownMs: 8000,
-      priority: 85,
-      phaseFilter: ["lobby"],
-    },
-    {
-      event: "round:complete",
-      probability: 0.7,
-      cooldownMs: 0,
-      priority: 90,
-    },
-    {
-      event: "game:complete",
+      event: "phase:changed",
       probability: 1.0,
       cooldownMs: 0,
-      priority: 90,
-    },
-    // Pixel Showdown (Trivia) triggers
-    {
-      event: "trivia:answer-revealed",
-      probability: 0.6,
-      cooldownMs: 5000,
-      priority: 55,
-    },
-    {
-      event: "trivia:hot-streak",
-      probability: 0.8,
-      cooldownMs: 10000,
-      priority: 50,
-    },
-    {
-      event: "trivia:fast-answer",
-      probability: 0.7,
-      cooldownMs: 8000,
-      priority: 45,
+      priority: 95,
+      phaseFilter: ["vote"],
     },
   ],
 };
@@ -120,6 +89,9 @@ export function getCommentatorPromptContext(
   switch (event) {
     case "player:joined":
       return `${context.playerName} just walked in. Size them up with dark humor — are they here to compete or to suffer? Be specific and address them by name.`;
+
+    case "phase:changed":
+      return `It's voting time! Round ${context.currentRound}. The answers are in and the players must now pick their favorite. Set the stage with dark anticipation — someone's about to get exposed.`;
 
     case "matchup:started":
       return `Round ${context.currentRound}, matchup ${(context.matchupIndex || 0) + 1} of ${context.matchupTotal}. The prompt is: "${context.promptText}". Announce this matchup with menace. Read the prompt and set the stage — someone is about to get embarrassed.`;

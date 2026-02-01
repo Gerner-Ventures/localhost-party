@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { useAudio } from "@/lib/context/AudioContext";
 import type { Player } from "@/lib/types";
 
 interface RoomLobbyProps {
@@ -11,7 +10,6 @@ interface RoomLobbyProps {
 }
 
 export function RoomLobby({ roomCode, players }: RoomLobbyProps) {
-  const { playSound } = useAudio();
   const previousPlayerCount = useRef(players.length);
 
   // Get the correct URL for any environment (localhost, Vercel preview, production)
@@ -28,13 +26,10 @@ export function RoomLobby({ roomCode, players }: RoomLobbyProps) {
   // Player avatars - arcade/gaming themed
   const avatars = ["⚡", "🎮", "👾", "🕹️", "🎯", "🔥", "💎", "🚀"];
 
-  // Play sound when player joins
+  // Track player count changes
   useEffect(() => {
-    if (players.length > previousPlayerCount.current) {
-      playSound("player-join");
-    }
     previousPlayerCount.current = players.length;
-  }, [players.length, playSound]);
+  }, [players.length]);
 
   return (
     <div className="flex h-screen p-8 text-white">
