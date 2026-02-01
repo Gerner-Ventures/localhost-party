@@ -102,7 +102,7 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
-          railway link ${{ secrets.RAILWAY_PROJECT_ID }} --environment preview
+          railway link --project ${{ secrets.RAILWAY_PROJECT_ID }} --environment preview
           railway up --detach
 
       - name: Comment PR with preview info

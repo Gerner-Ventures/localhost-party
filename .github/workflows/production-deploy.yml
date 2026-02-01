@@ -33,5 +33,5 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
-          railway link ${{ secrets.RAILWAY_PROJECT_ID }} --environment production
+          railway link --project ${{ secrets.RAILWAY_PROJECT_ID }} --environment production
           railway up --detach
