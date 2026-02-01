@@ -13,6 +13,7 @@ import {
   handleVote,
   advanceToNextRound,
   getPlayerPrompt,
+  applyScoresToPlayers,
 } from "./lib/games/quiplash";
 import {
   initializeGame,
@@ -740,6 +741,11 @@ app.prepare().then(() => {
             "Vote",
             `Vote from "${socket.data.playerName}" was rejected (duplicate/self-vote/author block)`
           );
+        }
+
+        // Apply round scores to the canonical player list
+        if (room.gameState.roundResults) {
+          applyScoresToPlayers(room.players, room.gameState.roundResults);
         }
 
         // Maintain single source of truth
