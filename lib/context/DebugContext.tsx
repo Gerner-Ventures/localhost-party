@@ -29,7 +29,8 @@ interface DebugProviderProps {
 export function DebugProvider({ children }: DebugProviderProps) {
   const { socket, gameState, emit } = useWebSocket();
   const eventIdCounter = useRef(0);
-  const socketInterceptedRef = useRef(false);
+  // Track which socket instance we've intercepted to handle reconnects
+  const interceptedSocketRef = useRef<typeof socket | null>(null);
 
   // Initialize with default values for SSR compatibility
   const [state, setState] = useState<DebugState>({
@@ -116,8 +117,9 @@ export function DebugProvider({ children }: DebugProviderProps) {
 
   // Intercept socket events for logging
   useEffect(() => {
-    if (!socket || socketInterceptedRef.current) return;
-    socketInterceptedRef.current = true;
+    // Skip if no socket or already intercepted this specific socket instance
+    if (!socket || interceptedSocketRef.current === socket) return;
+    interceptedSocketRef.current = socket;
 
     // Listen to all incoming events
     const handleAnyEvent = (event: string, ...args: unknown[]) => {
@@ -134,7 +136,8 @@ export function DebugProvider({ children }: DebugProviderProps) {
 
     return () => {
       socket.offAny(handleAnyEvent);
-      // Don't reset socketInterceptedRef - prevents duplicate listeners on reconnect
+      // Clear ref so new socket instances can be intercepted
+      interceptedSocketRef.current = null;
     };
   }, [socket]);
 

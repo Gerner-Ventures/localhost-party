@@ -48,6 +48,42 @@ const playerSockets = new Map(); // socketId -> player info
 // Initialize AI agent manager
 const agentManager = getAgentManager();
 
+// Track auto-advance timeouts per room to prevent memory leaks
+const roomTimeouts = new Map<string, NodeJS.Timeout[]>();
+
+// Helper to schedule a room timeout with automatic tracking
+function scheduleRoomTimeout(
+  roomCode: string,
+  callback: () => void,
+  delay: number
+): NodeJS.Timeout {
+  const timeoutId = setTimeout(() => {
+    // Remove this timeout from tracking when it fires
+    const timeouts = roomTimeouts.get(roomCode);
+    if (timeouts) {
+      const index = timeouts.indexOf(timeoutId);
+      if (index > -1) timeouts.splice(index, 1);
+    }
+    callback();
+  }, delay);
+
+  // Track the timeout
+  const existing = roomTimeouts.get(roomCode) || [];
+  existing.push(timeoutId);
+  roomTimeouts.set(roomCode, existing);
+
+  return timeoutId;
+}
+
+// Clear all pending timeouts for a room
+function clearRoomTimeouts(roomCode: string): void {
+  const timeouts = roomTimeouts.get(roomCode);
+  if (timeouts) {
+    timeouts.forEach((id) => clearTimeout(id));
+    roomTimeouts.delete(roomCode);
+  }
+}
+
 // Room cleanup settings
 const ROOM_IDLE_TIMEOUT = 30 * 60 * 1000; // 30 minutes
 const ROOM_CLEANUP_INTERVAL = 5 * 60 * 1000; // Check every 5 minutes
@@ -197,6 +233,7 @@ app.prepare().then(() => {
       const hasNoRecentActivity = now - room.lastActivity > ROOM_CLEANUP_BUFFER;
 
       if (isIdle && isEmpty && hasNoRecentActivity) {
+        clearRoomTimeouts(code);
         sharedRooms.remove(code);
         agentManager.cleanupRoom(code);
         cleanedCount++;
@@ -434,13 +471,17 @@ app.prepare().then(() => {
             broadcastGameState(roomCode);
 
             // Auto-advance to first question after category announcement
-            setTimeout(() => {
-              room.gameState = startTriviaQuestions(
-                room.gameState as PixelShowdownState
-              );
-              room.gameState.players = room.players;
-              broadcastGameState(roomCode);
-            }, 3000);
+            scheduleRoomTimeout(
+              roomCode,
+              () => {
+                room.gameState = startTriviaQuestions(
+                  room.gameState as PixelShowdownState
+                );
+                room.gameState.players = room.players;
+                broadcastGameState(roomCode);
+              },
+              3000
+            );
           },
           onError: (error) => {
             logError("Trivia", "Failed to generate questions", error);
@@ -778,13 +819,17 @@ app.prepare().then(() => {
               broadcastGameState(roomCode);
 
               // Auto-advance to first question
-              setTimeout(() => {
-                room.gameState = startTriviaQuestions(
-                  room.gameState as PixelShowdownState
-                );
-                room.gameState.players = room.players;
-                broadcastGameState(roomCode);
-              }, 3000);
+              scheduleRoomTimeout(
+                roomCode,
+                () => {
+                  room.gameState = startTriviaQuestions(
+                    room.gameState as PixelShowdownState
+                  );
+                  room.gameState.players = room.players;
+                  broadcastGameState(roomCode);
+                },
+                3000
+              );
             },
             onError: (error) => {
               logError(
@@ -889,82 +934,104 @@ app.prepare().then(() => {
 
       // Check if all players have answered
       if (result?.allAnswered) {
-        setTimeout(() => {
-          room.gameState = transitionAfterAllAnswered(
-            room.gameState as PixelShowdownState
-          );
-          room.gameState.players = room.players;
-          broadcastGameState(roomCode);
-
-          // Auto-advance to leaderboard after reveal
-          setTimeout(() => {
-            room.gameState = transitionToLeaderboardPhase(
+        scheduleRoomTimeout(
+          roomCode,
+          () => {
+            room.gameState = transitionAfterAllAnswered(
               room.gameState as PixelShowdownState
             );
             room.gameState.players = room.players;
             broadcastGameState(roomCode);
 
-            // Auto-advance to next question after leaderboard
-            setTimeout(() => {
-              const currentState = room.gameState as PixelShowdownState;
-              if (currentState.phase !== "leaderboard") return;
+            // Auto-advance to leaderboard after reveal
+            scheduleRoomTimeout(
+              roomCode,
+              () => {
+                room.gameState = transitionToLeaderboardPhase(
+                  room.gameState as PixelShowdownState
+                );
+                room.gameState.players = room.players;
+                broadcastGameState(roomCode);
 
-              room.gameState = advanceTrivia(currentState);
-              room.gameState.players = room.players;
-              broadcastGameState(roomCode);
+                // Auto-advance to next question after leaderboard
+                scheduleRoomTimeout(
+                  roomCode,
+                  () => {
+                    const currentState = room.gameState as PixelShowdownState;
+                    if (currentState.phase !== "leaderboard") return;
 
-              // If we transitioned to round_results, auto-advance after showing results
-              const newState = room.gameState as PixelShowdownState;
-              if (newState.phase === "round_results") {
-                setTimeout(() => {
-                  const resultState = room.gameState as PixelShowdownState;
-                  if (resultState.phase !== "round_results") return;
+                    room.gameState = advanceTrivia(currentState);
+                    room.gameState.players = room.players;
+                    broadcastGameState(roomCode);
 
-                  // Advance to next round (or game_results if final round)
-                  room.gameState = advanceTriviaRound(resultState);
-                  room.gameState.players = room.players;
-                  broadcastGameState(roomCode);
+                    // If we transitioned to round_results, auto-advance after showing results
+                    const newState = room.gameState as PixelShowdownState;
+                    if (newState.phase === "round_results") {
+                      scheduleRoomTimeout(
+                        roomCode,
+                        () => {
+                          const resultState =
+                            room.gameState as PixelShowdownState;
+                          if (resultState.phase !== "round_results") return;
 
-                  const afterAdvance = room.gameState as PixelShowdownState;
-                  // If we're now in category_announce, generate new questions
-                  if (afterAdvance.phase === "category_announce") {
-                    const apiBaseUrl = getApiBaseUrl();
-                    generateTriviaQuestions({
-                      apiBaseUrl,
-                      state: afterAdvance,
-                      onQuestionsReady: (questions, category) => {
-                        room.gameState = setTriviaQuestions(
-                          room.gameState as PixelShowdownState,
-                          questions,
-                          category
-                        );
-                        room.gameState.players = room.players;
-                        broadcastGameState(roomCode);
-
-                        // Auto-advance to first question
-                        setTimeout(() => {
-                          room.gameState = startTriviaQuestions(
-                            room.gameState as PixelShowdownState
-                          );
+                          // Advance to next round (or game_results if final round)
+                          room.gameState = advanceTriviaRound(resultState);
                           room.gameState.players = room.players;
                           broadcastGameState(roomCode);
-                        }, 3000);
-                      },
-                      onError: (error) => {
-                        logError(
-                          "Trivia",
-                          "Failed to generate questions for next round",
-                          error
-                        );
-                      },
-                    });
-                  }
-                  // If game_results, no further action needed
-                }, 5000); // Show round results for 5 seconds
-              }
-            }, 4000);
-          }, 4000);
-        }, 500);
+
+                          const afterAdvance =
+                            room.gameState as PixelShowdownState;
+                          // If we're now in category_announce, generate new questions
+                          if (afterAdvance.phase === "category_announce") {
+                            const apiBaseUrl = getApiBaseUrl();
+                            generateTriviaQuestions({
+                              apiBaseUrl,
+                              state: afterAdvance,
+                              onQuestionsReady: (questions, category) => {
+                                room.gameState = setTriviaQuestions(
+                                  room.gameState as PixelShowdownState,
+                                  questions,
+                                  category
+                                );
+                                room.gameState.players = room.players;
+                                broadcastGameState(roomCode);
+
+                                // Auto-advance to first question
+                                scheduleRoomTimeout(
+                                  roomCode,
+                                  () => {
+                                    room.gameState = startTriviaQuestions(
+                                      room.gameState as PixelShowdownState
+                                    );
+                                    room.gameState.players = room.players;
+                                    broadcastGameState(roomCode);
+                                  },
+                                  3000
+                                );
+                              },
+                              onError: (error) => {
+                                logError(
+                                  "Trivia",
+                                  "Failed to generate questions for next round",
+                                  error
+                                );
+                              },
+                            });
+                          }
+                          // If game_results, no further action needed
+                        },
+                        5000
+                      ); // Show round results for 5 seconds
+                    }
+                  },
+                  4000
+                );
+              },
+              4000
+            );
+          },
+          500
+        );
       }
     });
 
@@ -1011,13 +1078,17 @@ app.prepare().then(() => {
             broadcastGameState(roomCode);
 
             // Auto-advance to first question
-            setTimeout(() => {
-              room.gameState = startTriviaQuestions(
-                room.gameState as PixelShowdownState
-              );
-              room.gameState.players = room.players;
-              broadcastGameState(roomCode);
-            }, 3000);
+            scheduleRoomTimeout(
+              roomCode,
+              () => {
+                room.gameState = startTriviaQuestions(
+                  room.gameState as PixelShowdownState
+                );
+                room.gameState.players = room.players;
+                broadcastGameState(roomCode);
+              },
+              3000
+            );
           },
           onError: (error) => {
             logError(
@@ -1057,6 +1128,9 @@ app.prepare().then(() => {
       }
 
       logInfo("Game", `Restarting game in room ${roomCode}`);
+
+      // Clear any pending auto-advance timeouts
+      clearRoomTimeouts(roomCode);
 
       // Reset all player scores
       room.players.forEach((player) => {
