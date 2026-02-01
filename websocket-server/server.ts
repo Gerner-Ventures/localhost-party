@@ -25,13 +25,11 @@ import { gameRegistry } from "../lib/games";
 import { createEventRouter } from "../lib/server/event-router";
 import type { GameEventRouter } from "../lib/server/event-router";
 
-// Shared server utilities
+// Shared server utilities (single source of truth)
 import {
-  sanitizePlayerName as sanitizePlayerNameCore,
-  isValidRoomCode as isValidRoomCodeCore,
-  validatePayloadData as validatePayloadDataCore,
-  scheduleRoomTimeout,
-  clearRoomTimeouts,
+  sanitizePlayerName,
+  isValidRoomCode,
+  validatePayloadData,
   ROOM_SETTINGS,
 } from "../lib/server/core";
 
@@ -103,68 +101,8 @@ interface Room {
 const rooms = new Map<string, Room>();
 const playerSockets = new Map<string, Player>();
 
-// Room cleanup settings
-const ROOM_IDLE_TIMEOUT = 30 * 60 * 1000; // 30 minutes
-const ROOM_CLEANUP_INTERVAL = 5 * 60 * 1000; // Check every 5 minutes
-const ROOM_CLEANUP_BUFFER = 60 * 1000; // 1 minute buffer
-
-// ============================================================================
-// Validation Helpers
-// ============================================================================
-function sanitizePlayerName(name: unknown): string {
-  if (typeof name !== "string") return "";
-  return name
-    .trim()
-    .replace(/[<>'"&]/g, "")
-    .replace(/\s+/g, " ")
-    .slice(0, 20);
-}
-
-function isValidRoomCode(code: unknown): code is string {
-  if (typeof code !== "string") return false;
-  return /^[A-Z]{4}$/.test(code);
-}
-
-type SanitizedPayload =
-  | string
-  | Record<string, string | number | boolean>
-  | null;
-
-function validatePayloadData(data: unknown): {
-  valid: boolean;
-  sanitized: SanitizedPayload;
-} {
-  if (data === null || data === undefined) {
-    return { valid: false, sanitized: null };
-  }
-
-  if (typeof data === "string") {
-    const sanitized = data.slice(0, 1000).replace(/[<>]/g, "");
-    return { valid: true, sanitized };
-  }
-
-  if (typeof data === "object" && !Array.isArray(data)) {
-    const allowed = ["choice", "optionId", "answerId", "value", "text"];
-    const sanitized: Record<string, string | number | boolean> = {};
-    const dataObj = data as Record<string, unknown>;
-    for (const key of allowed) {
-      if (dataObj[key] !== undefined) {
-        if (typeof dataObj[key] === "string") {
-          sanitized[key] = (dataObj[key] as string)
-            .slice(0, 500)
-            .replace(/[<>]/g, "");
-        } else if (typeof dataObj[key] === "number") {
-          sanitized[key] = dataObj[key] as number;
-        } else if (typeof dataObj[key] === "boolean") {
-          sanitized[key] = dataObj[key] as boolean;
-        }
-      }
-    }
-    return { valid: true, sanitized };
-  }
-
-  return { valid: false, sanitized: null };
-}
+// Note: Room cleanup settings, validation helpers, and sanitization functions
+// are now imported from lib/server/core.ts (single source of truth)
 
 // ============================================================================
 // HTTP Server with Health Check
@@ -326,10 +264,11 @@ function cleanupIdleRooms(): void {
   let cleanedCount = 0;
 
   for (const [code, room] of rooms.entries()) {
-    const isIdle = now - room.lastActivity > ROOM_IDLE_TIMEOUT;
+    const isIdle = now - room.lastActivity > ROOM_SETTINGS.IDLE_TIMEOUT;
     const isEmpty =
       room.players.every((p) => !p.isConnected) && !room.displaySocketId;
-    const hasNoRecentActivity = now - room.lastActivity > ROOM_CLEANUP_BUFFER;
+    const hasNoRecentActivity =
+      now - room.lastActivity > ROOM_SETTINGS.CLEANUP_BUFFER;
 
     if (isIdle && isEmpty && hasNoRecentActivity) {
       rooms.delete(code);
@@ -346,7 +285,10 @@ function cleanupIdleRooms(): void {
   }
 }
 
-const cleanupInterval = setInterval(cleanupIdleRooms, ROOM_CLEANUP_INTERVAL);
+const cleanupInterval = setInterval(
+  cleanupIdleRooms,
+  ROOM_SETTINGS.CLEANUP_INTERVAL
+);
 
 /**
  * Broadcast game state to all clients in a room.
