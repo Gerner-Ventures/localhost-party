@@ -9,6 +9,7 @@ import { RoomLobby } from "@/components/display/RoomLobby";
 import { GameBoard } from "@/components/display/GameBoard";
 import { Leaderboard } from "@/components/display/Leaderboard";
 import { AUDIO_VOLUMES, AUDIO_DURATIONS } from "@/lib/audio/constants";
+import type { GameType } from "@/lib/types/game";
 
 function DisplayContent() {
   const searchParams = useSearchParams();
@@ -68,9 +69,13 @@ function DisplayContent() {
   useEffect(() => {
     if (isConnected && roomCode && !hasJoinedRoom.current) {
       hasJoinedRoom.current = true;
-      emit({ type: "display:join", payload: { roomCode } });
+      // Pass gameType so Railway WebSocket server knows what game this room is for
+      emit({
+        type: "display:join",
+        payload: { roomCode, gameType: gameType as GameType | null },
+      });
     }
-  }, [isConnected, roomCode, emit]);
+  }, [isConnected, roomCode, gameType, emit]);
 
   // Play lobby music and handle phase transitions
   useEffect(() => {
@@ -148,6 +153,7 @@ function DisplayContent() {
         <RoomLobby roomCode={roomCode} players={gameState.players} />
       )}
 
+      {/* Quiplash phases */}
       {["prompt", "submit", "vote"].includes(gameState.phase) && (
         <GameBoard gameState={gameState} />
       )}
@@ -155,6 +161,16 @@ function DisplayContent() {
       {gameState.phase === "results" && (
         <Leaderboard players={gameState.players} />
       )}
+
+      {/* Pixel Showdown phases */}
+      {[
+        "category_announce",
+        "question",
+        "answer_reveal",
+        "leaderboard",
+        "round_results",
+        "game_results",
+      ].includes(gameState.phase) && <GameBoard gameState={gameState} />}
 
       {/* AI Agent Toggle */}
       <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2">

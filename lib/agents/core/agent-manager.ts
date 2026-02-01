@@ -252,6 +252,15 @@ Respond in character with a brief spoken line (1-3 sentences max).`;
       recentSubmissions: event.context.recentSubmissions,
       submissionCount: event.context.submissionCount,
       totalPlayers: event.context.totalPlayers,
+      // Trivia-specific context
+      category: event.context.category,
+      questionNumber: event.context.questionNumber,
+      correctAnswer: event.context.correctAnswer,
+      correctPlayers: event.context.correctPlayers,
+      streakPlayer: event.context.streakPlayer,
+      streakCount: event.context.streakCount,
+      fastPlayer: event.context.fastPlayer,
+      responseTimeMs: event.context.responseTimeMs,
     };
 
     switch (persona.role) {

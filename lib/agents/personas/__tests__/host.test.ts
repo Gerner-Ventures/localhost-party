@@ -77,8 +77,8 @@ describe("Chip Sterling persona", () => {
       expect(findTrigger("matchup:complete")).toBeUndefined();
     });
 
-    it("has exactly 5 triggers", () => {
-      expect(chipSterling.triggers).toHaveLength(5);
+    it("has exactly 8 triggers", () => {
+      expect(chipSterling.triggers).toHaveLength(8);
     });
   });
 

@@ -9,15 +9,26 @@ import crypto from "crypto";
 import * as sharedRooms from "./lib/shared-rooms";
 import type { SharedRoom } from "./lib/shared-rooms";
 import {
-  initializeQuiplashGame,
   handleSubmission,
   handleVote,
   advanceToNextRound,
-  advanceToNextMatchup,
-  applyScoresToPlayers,
   getPlayerPrompt,
-  generateAIPrompts,
 } from "./lib/games/quiplash";
+import {
+  initializeGame,
+  generateTriviaQuestions,
+  handleTriviaAnswerMC,
+  handleTriviaAnswerFreeText,
+  transitionAfterAllAnswered,
+  transitionToLeaderboardPhase,
+  advanceTrivia,
+  advanceTriviaRound,
+  setTriviaQuestions,
+  startTriviaQuestions,
+  getApiBaseUrl,
+} from "./lib/games/handlers";
+import { handleAnswer as handleTriviaAnswerRaw } from "./lib/games/pixel-showdown";
+import type { PixelShowdownState } from "./lib/types/pixel-showdown";
 import { db } from "./lib/db";
 import type { GameState } from "./lib/types/game";
 import { getAgentManager } from "./lib/agents";
@@ -315,11 +326,20 @@ app.prepare().then(() => {
     logDebug("Socket", `Connected: ${socket.id}`);
 
     // Display joins a room
-    socket.on("display:join", ({ roomCode }) => {
-      logInfo("Display", `Display joining room: ${roomCode}`);
+    socket.on("display:join", ({ roomCode, gameType }) => {
+      logInfo(
+        "Display",
+        `Display joining room: ${roomCode} (gameType: ${gameType || "not specified"})`
+      );
 
       const room = getRoom(roomCode);
       room.displaySocketId = socket.id;
+
+      // Set gameType if provided and not already set
+      if (gameType && !room.gameState.gameType) {
+        room.gameState.gameType = gameType;
+        logInfo("Display", `Set gameType for room ${roomCode}: ${gameType}`);
+      }
 
       socket.join(roomCode);
       socket.data.roomCode = roomCode;
@@ -436,31 +456,41 @@ app.prepare().then(() => {
         (agentRoomGeneration.get(roomCode) ?? 0) + 1
       );
 
-      if (gameType === "quiplash") {
-        // Generate AI prompts (with 3-second timeout fallback)
-        let customPrompts: string[] | undefined;
-        const anthropicKey =
-          process.env.LH_PARTY_ANTHROPIC_API_KEY ||
-          process.env.ANTHROPIC_API_KEY;
-        if (anthropicKey) {
-          try {
-            const numPrompts = Math.ceil(room.players.length / 2);
-            customPrompts = await generateAIPrompts(numPrompts, anthropicKey);
-            logInfo("AI", `Generated ${customPrompts.length} AI prompts`);
-          } catch {
-            logWarn("AI", "Failed to generate AI prompts, using fallback");
-          }
-        }
-        room.gameState = initializeQuiplashGame(
-          roomCode,
-          room.players,
-          undefined,
-          customPrompts
-        );
-      } else {
-        room.gameState.gameType = gameType;
-        room.gameState.phase = "prompt";
-        room.gameState.currentRound = 1;
+      // Use shared game initialization
+      const { gameState: newGameState } = initializeGame(
+        gameType,
+        roomCode,
+        room.players
+      );
+      room.gameState = newGameState as SharedRoom["gameState"];
+
+      // For pixel-showdown, generate questions asynchronously
+      if (gameType === "pixel-showdown") {
+        const apiBaseUrl = getApiBaseUrl();
+        generateTriviaQuestions({
+          apiBaseUrl,
+          state: room.gameState as PixelShowdownState,
+          onQuestionsReady: (questions) => {
+            room.gameState = setTriviaQuestions(
+              room.gameState as PixelShowdownState,
+              questions
+            );
+            room.gameState.players = room.players;
+            broadcastGameState(roomCode);
+
+            // Auto-advance to first question after category announcement
+            setTimeout(() => {
+              room.gameState = startTriviaQuestions(
+                room.gameState as PixelShowdownState
+              );
+              room.gameState.players = room.players;
+              broadcastGameState(roomCode);
+            }, 3000);
+          },
+          onError: (error) => {
+            logError("Trivia", "Failed to generate questions", error);
+          },
+        });
       }
       // Maintain single source of truth
       room.gameState.players = room.players;
@@ -526,16 +556,12 @@ app.prepare().then(() => {
       }
 
       if (room.gameState.gameType === "quiplash") {
-        // Parse submission data - may be string or { text, promptId }
+        // Parse submission data - may be string or { text }
         let submissionText: string;
-        let promptId: string | undefined;
         if (typeof sanitized === "object" && sanitized !== null) {
           submissionText = String(
             (sanitized as Record<string, unknown>).text || ""
           );
-          promptId = (sanitized as Record<string, unknown>).promptId as
-            | string
-            | undefined;
         } else {
           submissionText = sanitized as string;
         }
@@ -544,8 +570,7 @@ app.prepare().then(() => {
           room.gameState as GameState,
           socket.data.playerId,
           socket.data.playerName,
-          submissionText,
-          promptId
+          submissionText
         );
         room.gameState = updatedGameState as SharedRoom["gameState"];
         // Maintain single source of truth
@@ -656,8 +681,7 @@ app.prepare().then(() => {
       }
 
       if (room.gameState.gameType === "quiplash") {
-        // Track phase and vote count before vote to detect transitions and silent rejections
-        const previousPhase = room.gameState.phase;
+        // Track vote count before vote to detect silent rejections
         const previousVoteCount = room.gameState.votes?.length || 0;
         const updatedGameState = handleVote(
           room.gameState as GameState,
@@ -672,17 +696,6 @@ app.prepare().then(() => {
           logWarn(
             "Vote",
             `Vote from "${socket.data.playerName}" was rejected (duplicate/self-vote/author block)`
-          );
-        }
-
-        // Log matchup completion (display will emit game:next-matchup to advance)
-        if (
-          previousPhase === "vote" &&
-          room.gameState.phase === "matchup-results"
-        ) {
-          logInfo(
-            "Scoring",
-            `Matchup complete in room ${roomCode} — waiting for display to advance`
           );
         }
 
@@ -759,55 +772,6 @@ app.prepare().then(() => {
       }
     });
 
-    // Advance to next matchup or final results (triggered by display/controller timer)
-    socket.on("game:next-matchup", ({ roomCode }) => {
-      logInfo(
-        "Game",
-        `Received game:next-matchup for room ${roomCode} from socket ${socket.id}`
-      );
-      if (!isValidRoomCode(roomCode)) {
-        socket.emit("player:error", { message: "Invalid room code" });
-        return;
-      }
-
-      const room = sharedRooms.get(roomCode);
-      if (!room) {
-        socket.emit("player:error", { message: "Room not found" });
-        return;
-      }
-
-      if (room.gameState.phase !== "matchup-results") {
-        logWarn(
-          "Game",
-          `Cannot advance matchup in room ${roomCode} - phase is "${room.gameState.phase}"`
-        );
-        return;
-      }
-
-      if (room.gameState.gameType !== "quiplash") return;
-
-      const prevPhase = room.gameState.phase;
-      room.gameState = advanceToNextMatchup(
-        room.gameState as GameState
-      ) as SharedRoom["gameState"];
-      logInfo(
-        "Game",
-        `Advanced matchup: ${prevPhase} → ${room.gameState.phase}`
-      );
-
-      // Apply scores when all matchups are done and we're going to results
-      if (room.gameState.phase === "results") {
-        logInfo(
-          "Scoring",
-          "All matchups complete — applying accumulated scores to players"
-        );
-        applyScoresToPlayers(room.players, room.gameState.roundResults);
-      }
-
-      room.gameState.players = room.players;
-      broadcastGameState(roomCode);
-    });
-
     // Advance to next round
     socket.on("game:next-round", async ({ roomCode }) => {
       if (!isValidRoomCode(roomCode)) {
@@ -821,10 +785,12 @@ app.prepare().then(() => {
         return;
       }
 
-      if (room.gameState.phase !== "results") {
+      // Handle both quiplash "results" and pixel-showdown "round_results"
+      const validPhases = ["results", "round_results"];
+      if (!validPhases.includes(room.gameState.phase)) {
         logWarn(
           "Game",
-          `Cannot advance round in room ${roomCode} - phase is "${room.gameState.phase}", expected "results"`
+          `Cannot advance round in room ${roomCode} - phase is "${room.gameState.phase}", expected one of ${validPhases.join(", ")}`
         );
         socket.emit("player:error", { message: "Not in results phase" });
         return;
@@ -833,40 +799,8 @@ app.prepare().then(() => {
       if (room.gameState.gameType === "quiplash") {
         logInfo("Game", `Advancing to next round in room ${roomCode}`);
 
-        // Collect previous submissions for theme detection
-        const previousSubmissions = (room.gameState.submissions || [])
-          .map((s) => String(s.data))
-          .filter(Boolean);
-
-        // Generate AI prompts for next round
-        let customPrompts: string[] | undefined;
-        const anthropicKey =
-          process.env.LH_PARTY_ANTHROPIC_API_KEY ||
-          process.env.ANTHROPIC_API_KEY;
-        if (anthropicKey) {
-          try {
-            const numPrompts = Math.ceil(room.players.length / 2);
-            customPrompts = await generateAIPrompts(
-              numPrompts,
-              anthropicKey,
-              previousSubmissions
-            );
-            logInfo(
-              "AI",
-              `Generated ${customPrompts.length} AI prompts for round ${room.gameState.currentRound + 1}`
-            );
-          } catch {
-            logWarn(
-              "AI",
-              "Failed to generate AI prompts for next round, using fallback"
-            );
-          }
-        }
-
         const updatedGameState = advanceToNextRound(
-          room.gameState as GameState,
-          undefined,
-          customPrompts
+          room.gameState as GameState
         );
         room.gameState = updatedGameState as SharedRoom["gameState"];
         // Maintain single source of truth
@@ -874,6 +808,47 @@ app.prepare().then(() => {
 
         // Broadcast immediately - don't block on database
         broadcastGameState(roomCode);
+      } else if (room.gameState.gameType === "pixel-showdown") {
+        logInfo("Game", `Advancing trivia to next round in room ${roomCode}`);
+        room.gameState = advanceTriviaRound(
+          room.gameState as PixelShowdownState
+        );
+        room.gameState.players = room.players;
+        broadcastGameState(roomCode);
+
+        // If we're in category_announce, generate new questions
+        const newState = room.gameState as PixelShowdownState;
+        if (newState.phase === "category_announce") {
+          const apiBaseUrl = getApiBaseUrl();
+          generateTriviaQuestions({
+            apiBaseUrl,
+            state: newState,
+            onQuestionsReady: (questions) => {
+              room.gameState = setTriviaQuestions(
+                room.gameState as PixelShowdownState,
+                questions
+              );
+              room.gameState.players = room.players;
+              broadcastGameState(roomCode);
+
+              // Auto-advance to first question
+              setTimeout(() => {
+                room.gameState = startTriviaQuestions(
+                  room.gameState as PixelShowdownState
+                );
+                room.gameState.players = room.players;
+                broadcastGameState(roomCode);
+              }, 3000);
+            },
+            onError: (error) => {
+              logError(
+                "Trivia",
+                "Failed to generate questions for next round",
+                error
+              );
+            },
+          });
+        }
 
         // Update game state in database in background (non-blocking)
         if (db) {
@@ -897,6 +872,157 @@ app.prepare().then(() => {
       }
     });
 
+    // Trivia answer submission (Pixel Showdown)
+    socket.on("trivia:answer", async ({ roomCode, answer, timestamp }) => {
+      if (!isValidRoomCode(roomCode)) {
+        socket.emit("player:error", { message: "Invalid room code" });
+        return;
+      }
+
+      const room = sharedRooms.get(roomCode);
+      if (!room || room.gameState.gameType !== "pixel-showdown") {
+        socket.emit("player:error", {
+          message: "Room not found or wrong game type",
+        });
+        return;
+      }
+
+      const state = room.gameState as PixelShowdownState;
+      if (state.phase !== "question" || !state.currentQuestion) {
+        return; // Ignore answers outside question phase
+      }
+
+      logInfo(
+        "Trivia",
+        `Answer from "${socket.data.playerName}" in room ${roomCode}`
+      );
+
+      const currentQuestion = state.currentQuestion;
+      let result;
+
+      // Use shared handlers for answer processing
+      if (currentQuestion.type === "multiple_choice") {
+        result = handleTriviaAnswerMC(
+          state,
+          socket.data.playerId,
+          socket.data.playerName,
+          answer,
+          timestamp,
+          room.players
+        );
+        room.gameState = result.updatedState;
+      } else if (currentQuestion.type === "free_text") {
+        try {
+          const apiBaseUrl = getApiBaseUrl();
+          result = await handleTriviaAnswerFreeText(
+            state,
+            socket.data.playerId,
+            socket.data.playerName,
+            answer,
+            timestamp,
+            room.players,
+            apiBaseUrl
+          );
+          room.gameState = result.updatedState;
+        } catch (error) {
+          logError("Trivia", "Failed to judge answer", error);
+          // Record the answer without judgment on error
+          room.gameState = handleTriviaAnswerRaw(
+            state,
+            socket.data.playerId,
+            socket.data.playerName,
+            answer,
+            timestamp
+          );
+          result = { allAnswered: false };
+        }
+      }
+
+      room.gameState.players = room.players;
+      broadcastGameState(roomCode);
+
+      // Check if all players have answered
+      if (result?.allAnswered) {
+        setTimeout(() => {
+          room.gameState = transitionAfterAllAnswered(
+            room.gameState as PixelShowdownState
+          );
+          room.gameState.players = room.players;
+          broadcastGameState(roomCode);
+
+          // Auto-advance to leaderboard after reveal
+          setTimeout(() => {
+            room.gameState = transitionToLeaderboardPhase(
+              room.gameState as PixelShowdownState
+            );
+            room.gameState.players = room.players;
+            broadcastGameState(roomCode);
+          }, 4000);
+        }, 500);
+      }
+    });
+
+    // Advance to next trivia question
+    socket.on("trivia:next-question", ({ roomCode }) => {
+      if (!isValidRoomCode(roomCode)) {
+        socket.emit("player:error", { message: "Invalid room code" });
+        return;
+      }
+
+      const room = sharedRooms.get(roomCode);
+      if (!room || room.gameState.gameType !== "pixel-showdown") {
+        socket.emit("player:error", {
+          message: "Room not found or wrong game type",
+        });
+        return;
+      }
+
+      const state = room.gameState as PixelShowdownState;
+      if (state.phase !== "leaderboard") {
+        return;
+      }
+
+      logInfo("Trivia", `Advancing to next question in room ${roomCode}`);
+
+      room.gameState = advanceTrivia(state);
+      room.gameState.players = room.players;
+      broadcastGameState(roomCode);
+
+      // If we transitioned to category_announce, generate new questions
+      const newState = room.gameState as PixelShowdownState;
+      if (newState.phase === "category_announce") {
+        const apiBaseUrl = getApiBaseUrl();
+        generateTriviaQuestions({
+          apiBaseUrl,
+          state: newState,
+          onQuestionsReady: (questions) => {
+            room.gameState = setTriviaQuestions(
+              room.gameState as PixelShowdownState,
+              questions
+            );
+            room.gameState.players = room.players;
+            broadcastGameState(roomCode);
+
+            // Auto-advance to first question
+            setTimeout(() => {
+              room.gameState = startTriviaQuestions(
+                room.gameState as PixelShowdownState
+              );
+              room.gameState.players = room.players;
+              broadcastGameState(roomCode);
+            }, 3000);
+          },
+          onError: (error) => {
+            logError(
+              "Trivia",
+              "Failed to generate questions for next round",
+              error
+            );
+          },
+        });
+      }
+    });
+
     // Restart game (return to lobby with same players)
     socket.on("game:restart", ({ roomCode }) => {
       if (!isValidRoomCode(roomCode)) {
@@ -910,10 +1036,14 @@ app.prepare().then(() => {
         return;
       }
 
-      if (room.gameState.phase !== "results") {
+      // Allow restart from results phase or game_results phase
+      if (
+        room.gameState.phase !== "results" &&
+        room.gameState.phase !== "game_results"
+      ) {
         logWarn(
           "Game",
-          `Cannot restart game in room ${roomCode} - phase is "${room.gameState.phase}", expected "results"`
+          `Cannot restart game in room ${roomCode} - phase is "${room.gameState.phase}", expected "results" or "game_results"`
         );
         socket.emit("player:error", { message: "Game not finished" });
         return;

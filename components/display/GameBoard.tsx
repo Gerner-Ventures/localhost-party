@@ -1,7 +1,9 @@
-'use client';
+"use client";
 
-import type { GameState } from '@/lib/types';
-import { QuiplashDisplay } from '@/components/games/QuiplashDisplay';
+import type { GameState } from "@/lib/types";
+import type { PixelShowdownState } from "@/lib/types/pixel-showdown";
+import { QuiplashDisplay } from "@/components/games/QuiplashDisplay";
+import { PixelShowdownDisplay } from "@/components/games/PixelShowdownDisplay";
 
 interface GameBoardProps {
   gameState: GameState;
@@ -29,14 +31,20 @@ export function GameBoard({ gameState }: GameBoardProps) {
       <div className="flex-1 w-full max-w-6xl bg-white/10 backdrop-blur-sm rounded-3xl p-12 border-2 border-white/20">
         <div className="flex flex-col items-center justify-center h-full">
           {/* Game-specific components */}
-          {gameState.gameType === 'quiplash' ? (
+          {gameState.gameType === "quiplash" ? (
             <QuiplashDisplay gameState={gameState} />
+          ) : gameState.gameType === "pixel-showdown" ? (
+            <PixelShowdownDisplay
+              gameState={gameState as unknown as PixelShowdownState}
+            />
           ) : (
             /* Fallback for other game types */
             <>
-              {gameState.phase === 'submit' && (
+              {gameState.phase === "submit" && (
                 <div className="text-center">
-                  <h2 className="text-6xl font-black mb-8">Submit Your Answers</h2>
+                  <h2 className="text-6xl font-black mb-8">
+                    Submit Your Answers
+                  </h2>
                   <p className="text-4xl opacity-80">Waiting for players...</p>
                   <div className="mt-12 flex gap-4 justify-center">
                     {gameState.players.map((player) => (
@@ -44,17 +52,19 @@ export function GameBoard({ gameState }: GameBoardProps) {
                         key={player.id}
                         className="px-6 py-3 bg-white/20 rounded-xl text-2xl"
                       >
-                        {player.name} {player.isConnected ? '✓' : '⏳'}
+                        {player.name} {player.isConnected ? "✓" : "⏳"}
                       </div>
                     ))}
                   </div>
                 </div>
               )}
 
-              {gameState.phase === 'vote' && (
+              {gameState.phase === "vote" && (
                 <div className="text-center">
                   <h2 className="text-6xl font-black mb-8">Time to Vote!</h2>
-                  <p className="text-4xl opacity-80">Cast your votes on your phones</p>
+                  <p className="text-4xl opacity-80">
+                    Cast your votes on your phones
+                  </p>
                 </div>
               )}
             </>
@@ -71,7 +81,9 @@ export function GameBoard({ gameState }: GameBoardProps) {
               className="bg-gradient-to-br from-purple-600 to-blue-600 rounded-xl px-6 py-3 min-w-[150px] text-center"
             >
               <div className="text-xl font-bold">{player.name}</div>
-              <div className="text-2xl font-black text-yellow-400">{player.score}</div>
+              <div className="text-2xl font-black text-yellow-400">
+                {player.score}
+              </div>
             </div>
           ))}
         </div>

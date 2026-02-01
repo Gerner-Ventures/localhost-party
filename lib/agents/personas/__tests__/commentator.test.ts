@@ -42,20 +42,12 @@ describe("Snarky Sam persona", () => {
       expect(trigger!.phaseFilter).toEqual(["lobby"]);
     });
 
-    it("triggers on matchup:started in vote phase", () => {
-      const trigger = findTrigger("matchup:started");
-      expect(trigger).toBeDefined();
-      expect(trigger!.probability).toBe(1.0);
-      expect(trigger!.priority).toBe(95);
-      expect(trigger!.phaseFilter).toEqual(["vote"]);
+    it("does NOT trigger on matchup:started (removed)", () => {
+      expect(findTrigger("matchup:started")).toBeUndefined();
     });
 
-    it("triggers on matchup:complete in matchup-results phase", () => {
-      const trigger = findTrigger("matchup:complete");
-      expect(trigger).toBeDefined();
-      expect(trigger!.probability).toBe(1.0);
-      expect(trigger!.priority).toBe(95);
-      expect(trigger!.phaseFilter).toEqual(["matchup-results"]);
+    it("does NOT trigger on matchup:complete (removed)", () => {
+      expect(findTrigger("matchup:complete")).toBeUndefined();
     });
 
     it("triggers on round:complete with high probability", () => {
@@ -84,8 +76,8 @@ describe("Snarky Sam persona", () => {
       expect(findTrigger("idle:detected")).toBeUndefined();
     });
 
-    it("has exactly 5 triggers", () => {
-      expect(snarkySam.triggers).toHaveLength(5);
+    it("has exactly 6 triggers", () => {
+      expect(snarkySam.triggers).toHaveLength(6);
     });
   });
 

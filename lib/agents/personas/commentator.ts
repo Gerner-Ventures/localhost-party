@@ -54,20 +54,6 @@ RULES:
       phaseFilter: ["lobby"],
     },
     {
-      event: "matchup:started",
-      probability: 1.0,
-      cooldownMs: 0,
-      priority: 95,
-      phaseFilter: ["vote"],
-    },
-    {
-      event: "matchup:complete",
-      probability: 1.0,
-      cooldownMs: 0,
-      priority: 95,
-      phaseFilter: ["matchup-results"],
-    },
-    {
       event: "round:complete",
       probability: 0.7,
       cooldownMs: 0,
@@ -78,6 +64,25 @@ RULES:
       probability: 1.0,
       cooldownMs: 0,
       priority: 90,
+    },
+    // Pixel Showdown (Trivia) triggers
+    {
+      event: "trivia:answer-revealed",
+      probability: 0.6,
+      cooldownMs: 5000,
+      priority: 55,
+    },
+    {
+      event: "trivia:hot-streak",
+      probability: 0.8,
+      cooldownMs: 10000,
+      priority: 50,
+    },
+    {
+      event: "trivia:fast-answer",
+      probability: 0.7,
+      cooldownMs: 8000,
+      priority: 45,
     },
   ],
 };
@@ -103,6 +108,13 @@ export function getCommentatorPromptContext(
     promptText?: string;
     matchupAnswers?: [string, string];
     matchupWinnerName?: string;
+    // Trivia context
+    correctPlayers?: string[];
+    correctAnswer?: string;
+    streakPlayer?: string;
+    streakCount?: number;
+    fastPlayer?: string;
+    responseTimeMs?: number;
   }
 ): string {
   switch (event) {
@@ -129,6 +141,25 @@ IMPORTANT: React to the SPECIFIC answers. Quote or reference the actual text. Ro
         : null;
       return `Game over. ${winner ? `${winner} won.` : ""} ONE short sentence — deadpan dark sign-off, keep it brief.`;
     }
+
+    // Pixel Showdown (Trivia) prompts
+    case "trivia:answer-revealed":
+      if (!context.correctPlayers?.length) {
+        return `Everyone missed the question! The answer was "${context.correctAnswer}". Make a witty observation about the collective failure - but keep it playful.`;
+      }
+      if (context.correctPlayers.length === 1) {
+        return `Only ${context.correctPlayers[0]} got it right. Make a quick quip about being the only one who knew.`;
+      }
+      return `Some players got it right, others didn't. Make a quick observation comparing the smarty-pants to the rest.`;
+
+    case "trivia:hot-streak":
+      return `${context.streakPlayer} is on a ${context.streakCount}-answer streak! Give them some sports-style commentary about their domination.`;
+
+    case "trivia:fast-answer":
+      const seconds = context.responseTimeMs
+        ? (context.responseTimeMs / 1000).toFixed(1)
+        : "under 3";
+      return `${context.fastPlayer} answered in ${seconds} seconds! Make a quip about their lightning-fast trigger finger.`;
 
     default:
       return "";
