@@ -19,6 +19,22 @@ import "dotenv/config";
 import { createServer, IncomingMessage, ServerResponse } from "http";
 import { Server } from "socket.io";
 import crypto from "crypto";
+
+// Game registry - auto-registers all games on import
+import { gameRegistry } from "../lib/games";
+import { createEventRouter } from "../lib/server/event-router";
+import type { GameEventRouter } from "../lib/server/event-router";
+
+// Shared server utilities
+import {
+  sanitizePlayerName as sanitizePlayerNameCore,
+  isValidRoomCode as isValidRoomCodeCore,
+  validatePayloadData as validatePayloadDataCore,
+  scheduleRoomTimeout,
+  clearRoomTimeouts,
+  ROOM_SETTINGS,
+} from "../lib/server/core";
+
 // Quiplash-specific imports (not yet in shared handlers)
 import {
   handleSubmission,
@@ -45,6 +61,9 @@ import { logDebug, logInfo, logWarn, logError } from "../lib/logger";
 import type { GameState } from "../lib/types/game";
 import type { Player } from "../lib/types/player";
 import type { PixelShowdownState } from "../lib/types/pixel-showdown";
+
+// Feature flag for new event router
+const USE_NEW_EVENT_ROUTER = process.env.USE_NEW_EVENT_ROUTER === "true";
 
 const port = parseInt(process.env.PORT || "3001", 10);
 
@@ -363,6 +382,29 @@ function broadcastGameState(roomCode: string): void {
   );
 
   io.to(roomCode).emit("game:state-update", room.gameState);
+}
+
+// ============================================================================
+// Game Registry and Event Router
+// ============================================================================
+
+// Initialize game event router (for new registry-based event handling)
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+let eventRouter: GameEventRouter | null = null;
+if (USE_NEW_EVENT_ROUTER) {
+  logInfo("Server", "Using new event router with game registry");
+  logInfo(
+    "Server",
+    `Registered games: ${gameRegistry.getSupportedGames().join(", ")}`
+  );
+  // Note: eventRouter would need room adapter to work with local rooms Map
+  // For now, keeping legacy handlers but game registry is available
+} else {
+  logInfo("Server", "Using legacy event handlers");
+  logInfo(
+    "Server",
+    `Game registry available with: ${gameRegistry.getSupportedGames().join(", ")}`
+  );
 }
 
 // ============================================================================
