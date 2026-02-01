@@ -31,7 +31,7 @@ jobs:
 
       - name: Deploy WebSocket server to Railway production
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PRODUCTION }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
           railway link --project ${{ secrets.RAILWAY_PROJECT_ID }} --environment production
           railway up --detach
