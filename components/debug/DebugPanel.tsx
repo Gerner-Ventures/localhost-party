@@ -7,12 +7,14 @@ import { DebugStateViewer } from "./DebugStateViewer";
 import { DebugEventLog } from "./DebugEventLog";
 import { DebugPhaseControls } from "./DebugPhaseControls";
 import { DebugPlayerManager } from "./DebugPlayerManager";
+import { DebugSettings } from "./DebugSettings";
 
 const TABS: { id: DebugTab; label: string; icon: string }[] = [
   { id: "state", label: "State", icon: "{ }" },
   { id: "events", label: "Events", icon: ">_" },
   { id: "phases", label: "Phases", icon: ">>>" },
   { id: "players", label: "Players", icon: "**" },
+  { id: "settings", label: "Settings", icon: "⚙" },
 ];
 
 export function DebugPanel() {
@@ -95,11 +97,12 @@ export function DebugPanel() {
       </div>
 
       {/* Tab Content */}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden overflow-y-auto">
         {state.activeTab === "state" && <DebugStateViewer />}
         {state.activeTab === "events" && <DebugEventLog />}
         {state.activeTab === "phases" && <DebugPhaseControls />}
         {state.activeTab === "players" && <DebugPlayerManager />}
+        {state.activeTab === "settings" && <DebugSettings />}
       </div>
     </div>
   );

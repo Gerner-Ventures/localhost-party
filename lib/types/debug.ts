@@ -21,7 +21,7 @@ export interface DebugEvent {
 /**
  * Debug panel tab options
  */
-export type DebugTab = "state" | "events" | "phases" | "players";
+export type DebugTab = "state" | "events" | "phases" | "players" | "settings";
 
 /**
  * Debug panel UI state

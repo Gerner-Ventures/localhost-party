@@ -424,10 +424,11 @@ app.prepare().then(() => {
         generateTriviaQuestions({
           apiBaseUrl,
           state: room.gameState as PixelShowdownState,
-          onQuestionsReady: (questions) => {
+          onQuestionsReady: (questions, category) => {
             room.gameState = setTriviaQuestions(
               room.gameState as PixelShowdownState,
-              questions
+              questions,
+              category
             );
             room.gameState.players = room.players;
             broadcastGameState(roomCode);
@@ -767,10 +768,11 @@ app.prepare().then(() => {
           generateTriviaQuestions({
             apiBaseUrl,
             state: newState,
-            onQuestionsReady: (questions) => {
+            onQuestionsReady: (questions, category) => {
               room.gameState = setTriviaQuestions(
                 room.gameState as PixelShowdownState,
-                questions
+                questions,
+                category
               );
               room.gameState.players = room.players;
               broadcastGameState(roomCode);
@@ -901,6 +903,51 @@ app.prepare().then(() => {
             );
             room.gameState.players = room.players;
             broadcastGameState(roomCode);
+
+            // Auto-advance to next question after leaderboard
+            setTimeout(() => {
+              const currentState = room.gameState as PixelShowdownState;
+              if (currentState.phase !== "leaderboard") return;
+
+              room.gameState = advanceTrivia(currentState);
+              room.gameState.players = room.players;
+              broadcastGameState(roomCode);
+
+              // If we transitioned to category_announce (new round), generate questions
+              const newState = room.gameState as PixelShowdownState;
+              if (newState.phase === "category_announce") {
+                const apiBaseUrl = getApiBaseUrl();
+                generateTriviaQuestions({
+                  apiBaseUrl,
+                  state: newState,
+                  onQuestionsReady: (questions, category) => {
+                    room.gameState = setTriviaQuestions(
+                      room.gameState as PixelShowdownState,
+                      questions,
+                      category
+                    );
+                    room.gameState.players = room.players;
+                    broadcastGameState(roomCode);
+
+                    // Auto-advance to first question
+                    setTimeout(() => {
+                      room.gameState = startTriviaQuestions(
+                        room.gameState as PixelShowdownState
+                      );
+                      room.gameState.players = room.players;
+                      broadcastGameState(roomCode);
+                    }, 3000);
+                  },
+                  onError: (error) => {
+                    logError(
+                      "Trivia",
+                      "Failed to generate questions for next round",
+                      error
+                    );
+                  },
+                });
+              }
+            }, 4000);
           }, 4000);
         }, 500);
       }
@@ -939,10 +986,11 @@ app.prepare().then(() => {
         generateTriviaQuestions({
           apiBaseUrl,
           state: newState,
-          onQuestionsReady: (questions) => {
+          onQuestionsReady: (questions, category) => {
             room.gameState = setTriviaQuestions(
               room.gameState as PixelShowdownState,
-              questions
+              questions,
+              category
             );
             room.gameState.players = room.players;
             broadcastGameState(roomCode);

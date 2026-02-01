@@ -115,6 +115,27 @@ export function DebugStateViewer() {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(async () => {
+    if (!gameState) return;
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(gameState, null, 2));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback for older browsers
+      const text = JSON.stringify(gameState, null, 2);
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }, [gameState]);
 
   const handleEdit = useCallback(() => {
     setEditValue(JSON.stringify(gameState, null, 2));
@@ -174,13 +195,25 @@ export function DebugStateViewer() {
             )}
           </>
         ) : (
-          <button
-            onClick={handleEdit}
-            className="px-3 py-1 text-xs bg-cyan-600 hover:bg-cyan-500
-                       text-white rounded transition-colors"
-          >
-            Edit
-          </button>
+          <>
+            <button
+              onClick={handleEdit}
+              className="px-3 py-1 text-xs bg-cyan-600 hover:bg-cyan-500
+                         text-white rounded transition-colors"
+            >
+              Edit
+            </button>
+            <button
+              onClick={handleCopy}
+              className={`px-3 py-1 text-xs rounded transition-colors ${
+                copied
+                  ? "bg-green-600 text-white"
+                  : "bg-gray-600 hover:bg-gray-500 text-white"
+              }`}
+            >
+              {copied ? "Copied!" : "Copy"}
+            </button>
+          </>
         )}
       </div>
 
