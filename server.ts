@@ -13,8 +13,10 @@ import {
   handleSubmission,
   handleVote,
   advanceToNextRound,
+  advanceToNextMatchup,
   applyScoresToPlayers,
   getPlayerPrompt,
+  generateAIPrompts,
 } from "./lib/games/quiplash";
 import { db } from "./lib/db";
 import type { GameState } from "./lib/types/game";
@@ -33,6 +35,13 @@ const playerSockets = new Map(); // socketId -> player info
 
 // Initialize AI agent manager
 const agentManager = getAgentManager();
+
+// Per-room debounce for agent processing to prevent duplicate speech from rapid state changes
+const agentDebounceTimers = new Map<string, NodeJS.Timeout>();
+const AGENT_DEBOUNCE_MS = 300;
+// Per-room generation counter — incremented on game:start / game:restart so
+// in-flight agent responses from a previous phase are discarded before emit.
+const agentRoomGeneration = new Map<string, number>();
 
 // Room cleanup settings
 const ROOM_IDLE_TIMEOUT = 30 * 60 * 1000; // 30 minutes
@@ -81,7 +90,14 @@ function validatePayloadData(data: unknown): {
   // If it's a simple object (vote choice, etc.), validate structure
   if (typeof data === "object" && !Array.isArray(data)) {
     // Only allow specific known properties
-    const allowed = ["choice", "optionId", "answerId", "value", "text"];
+    const allowed = [
+      "choice",
+      "optionId",
+      "answerId",
+      "value",
+      "text",
+      "promptId",
+    ];
     const sanitized: Record<string, string | number | boolean> = {};
     const dataObj = data as Record<string, unknown>;
     for (const key of allowed) {
@@ -185,6 +201,10 @@ app.prepare().then(() => {
       if (isIdle && isEmpty && hasNoRecentActivity) {
         sharedRooms.remove(code);
         agentManager.cleanupRoom(code);
+        const pendingTimer = agentDebounceTimers.get(code);
+        if (pendingTimer) clearTimeout(pendingTimer);
+        agentDebounceTimers.delete(code);
+        agentRoomGeneration.delete(code);
         cleanedCount++;
         logInfo("Cleanup", `Removed idle room: ${code}`);
       }
@@ -240,29 +260,54 @@ app.prepare().then(() => {
       }
     );
 
-    // Trigger AI agent responses (async, non-blocking)
+    // Debounce agent processing to prevent duplicate speech from rapid state changes
+    // (e.g., vote → matchup-results within a single tick triggers multiple broadcasts)
     if (agentManager.isEnabled()) {
-      agentManager
-        .handleGameStateChange(roomCode, room.gameState as GameState)
-        .then((responses) => {
-          for (const response of responses) {
-            logDebug(
-              "Agent",
-              `${response.agentName}: "${response.text.substring(0, 50)}..."`
-            );
-            io.to(roomCode).emit("agent:speak", {
-              agentId: response.agentId,
-              agentName: response.agentName,
-              text: response.text,
-              voice: response.voice,
-              emotion: response.emotion,
-              priority: response.priority,
+      const existingTimer = agentDebounceTimers.get(roomCode);
+      if (existingTimer) clearTimeout(existingTimer);
+
+      const stateSnapshot = structuredClone(room.gameState) as GameState;
+      const gen = agentRoomGeneration.get(roomCode) ?? 0;
+      agentDebounceTimers.set(
+        roomCode,
+        setTimeout(() => {
+          agentDebounceTimers.delete(roomCode);
+
+          // If game:start/restart bumped the generation since this timer was set,
+          // discard — the response belongs to an outdated phase.
+          if ((agentRoomGeneration.get(roomCode) ?? 0) !== gen) return;
+
+          agentManager
+            .handleGameStateChange(roomCode, stateSnapshot)
+            .then((responses) => {
+              // Check generation again after async AI call completes
+              if ((agentRoomGeneration.get(roomCode) ?? 0) !== gen) return;
+
+              // Emit only to the display socket — players' phones don't need agent speech
+              const currentRoom = sharedRooms.get(roomCode);
+              const displaySocketId = currentRoom?.displaySocketId;
+              if (!displaySocketId) return;
+
+              for (const response of responses) {
+                logInfo(
+                  "Agent",
+                  `${response.agentName}: "${response.text.substring(0, 80)}..."`
+                );
+                io.to(displaySocketId).emit("agent:speak", {
+                  agentId: response.agentId,
+                  agentName: response.agentName,
+                  text: response.text,
+                  voice: response.voice,
+                  emotion: response.emotion,
+                  priority: response.priority,
+                });
+              }
+            })
+            .catch((error) => {
+              logError("Agent", "Error generating responses", error);
             });
-          }
-        })
-        .catch((error) => {
-          logError("Agent", "Error generating responses", error);
-        });
+        }, AGENT_DEBOUNCE_MS)
+      );
     }
   }
 
@@ -365,7 +410,7 @@ app.prepare().then(() => {
     });
 
     // Start game
-    socket.on("game:start", ({ roomCode, gameType }) => {
+    socket.on("game:start", async ({ roomCode, gameType }) => {
       logInfo("Game", `Starting "${gameType}" in room ${roomCode}`);
 
       const room = sharedRooms.get(roomCode);
@@ -384,11 +429,34 @@ app.prepare().then(() => {
         return;
       }
 
-      // Reset agent state for new game
+      // Reset agent state for new game and invalidate any in-flight lobby responses
       agentManager.resetGame(roomCode);
+      agentRoomGeneration.set(
+        roomCode,
+        (agentRoomGeneration.get(roomCode) ?? 0) + 1
+      );
 
       if (gameType === "quiplash") {
-        room.gameState = initializeQuiplashGame(roomCode, room.players);
+        // Generate AI prompts (with 3-second timeout fallback)
+        let customPrompts: string[] | undefined;
+        const anthropicKey =
+          process.env.LH_PARTY_ANTHROPIC_API_KEY ||
+          process.env.ANTHROPIC_API_KEY;
+        if (anthropicKey) {
+          try {
+            const numPrompts = Math.ceil(room.players.length / 2);
+            customPrompts = await generateAIPrompts(numPrompts, anthropicKey);
+            logInfo("AI", `Generated ${customPrompts.length} AI prompts`);
+          } catch {
+            logWarn("AI", "Failed to generate AI prompts, using fallback");
+          }
+        }
+        room.gameState = initializeQuiplashGame(
+          roomCode,
+          room.players,
+          undefined,
+          customPrompts
+        );
       } else {
         room.gameState.gameType = gameType;
         room.gameState.phase = "prompt";
@@ -458,11 +526,26 @@ app.prepare().then(() => {
       }
 
       if (room.gameState.gameType === "quiplash") {
+        // Parse submission data - may be string or { text, promptId }
+        let submissionText: string;
+        let promptId: string | undefined;
+        if (typeof sanitized === "object" && sanitized !== null) {
+          submissionText = String(
+            (sanitized as Record<string, unknown>).text || ""
+          );
+          promptId = (sanitized as Record<string, unknown>).promptId as
+            | string
+            | undefined;
+        } else {
+          submissionText = sanitized as string;
+        }
+
         const updatedGameState = handleSubmission(
           room.gameState as GameState,
           socket.data.playerId,
           socket.data.playerName,
-          sanitized as string
+          submissionText,
+          promptId
         );
         room.gameState = updatedGameState as SharedRoom["gameState"];
         // Maintain single source of truth
@@ -573,8 +656,9 @@ app.prepare().then(() => {
       }
 
       if (room.gameState.gameType === "quiplash") {
-        // Track phase before vote to detect vote->results transition
+        // Track phase and vote count before vote to detect transitions and silent rejections
         const previousPhase = room.gameState.phase;
+        const previousVoteCount = room.gameState.votes?.length || 0;
         const updatedGameState = handleVote(
           room.gameState as GameState,
           socket.data.playerId,
@@ -583,13 +667,23 @@ app.prepare().then(() => {
         );
         room.gameState = updatedGameState as SharedRoom["gameState"];
 
-        // Apply scores when transitioning from vote to results
-        if (previousPhase === "vote" && room.gameState.phase === "results") {
+        const newVoteCount = room.gameState.votes?.length || 0;
+        if (newVoteCount === previousVoteCount) {
+          logWarn(
+            "Vote",
+            `Vote from "${socket.data.playerName}" was rejected (duplicate/self-vote/author block)`
+          );
+        }
+
+        // Log matchup completion (display will emit game:next-matchup to advance)
+        if (
+          previousPhase === "vote" &&
+          room.gameState.phase === "matchup-results"
+        ) {
           logInfo(
             "Scoring",
-            "Vote phase complete - applying scores to players"
+            `Matchup complete in room ${roomCode} — waiting for display to advance`
           );
-          applyScoresToPlayers(room.players, room.gameState.roundResults);
         }
 
         // Maintain single source of truth
@@ -665,8 +759,57 @@ app.prepare().then(() => {
       }
     });
 
+    // Advance to next matchup or final results (triggered by display/controller timer)
+    socket.on("game:next-matchup", ({ roomCode }) => {
+      logInfo(
+        "Game",
+        `Received game:next-matchup for room ${roomCode} from socket ${socket.id}`
+      );
+      if (!isValidRoomCode(roomCode)) {
+        socket.emit("player:error", { message: "Invalid room code" });
+        return;
+      }
+
+      const room = sharedRooms.get(roomCode);
+      if (!room) {
+        socket.emit("player:error", { message: "Room not found" });
+        return;
+      }
+
+      if (room.gameState.phase !== "matchup-results") {
+        logWarn(
+          "Game",
+          `Cannot advance matchup in room ${roomCode} - phase is "${room.gameState.phase}"`
+        );
+        return;
+      }
+
+      if (room.gameState.gameType !== "quiplash") return;
+
+      const prevPhase = room.gameState.phase;
+      room.gameState = advanceToNextMatchup(
+        room.gameState as GameState
+      ) as SharedRoom["gameState"];
+      logInfo(
+        "Game",
+        `Advanced matchup: ${prevPhase} → ${room.gameState.phase}`
+      );
+
+      // Apply scores when all matchups are done and we're going to results
+      if (room.gameState.phase === "results") {
+        logInfo(
+          "Scoring",
+          "All matchups complete — applying accumulated scores to players"
+        );
+        applyScoresToPlayers(room.players, room.gameState.roundResults);
+      }
+
+      room.gameState.players = room.players;
+      broadcastGameState(roomCode);
+    });
+
     // Advance to next round
-    socket.on("game:next-round", ({ roomCode }) => {
+    socket.on("game:next-round", async ({ roomCode }) => {
       if (!isValidRoomCode(roomCode)) {
         socket.emit("player:error", { message: "Invalid room code" });
         return;
@@ -689,8 +832,41 @@ app.prepare().then(() => {
 
       if (room.gameState.gameType === "quiplash") {
         logInfo("Game", `Advancing to next round in room ${roomCode}`);
+
+        // Collect previous submissions for theme detection
+        const previousSubmissions = (room.gameState.submissions || [])
+          .map((s) => String(s.data))
+          .filter(Boolean);
+
+        // Generate AI prompts for next round
+        let customPrompts: string[] | undefined;
+        const anthropicKey =
+          process.env.LH_PARTY_ANTHROPIC_API_KEY ||
+          process.env.ANTHROPIC_API_KEY;
+        if (anthropicKey) {
+          try {
+            const numPrompts = Math.ceil(room.players.length / 2);
+            customPrompts = await generateAIPrompts(
+              numPrompts,
+              anthropicKey,
+              previousSubmissions
+            );
+            logInfo(
+              "AI",
+              `Generated ${customPrompts.length} AI prompts for round ${room.gameState.currentRound + 1}`
+            );
+          } catch {
+            logWarn(
+              "AI",
+              "Failed to generate AI prompts for next round, using fallback"
+            );
+          }
+        }
+
         const updatedGameState = advanceToNextRound(
-          room.gameState as GameState
+          room.gameState as GameState,
+          undefined,
+          customPrompts
         );
         room.gameState = updatedGameState as SharedRoom["gameState"];
         // Maintain single source of truth
@@ -749,6 +925,13 @@ app.prepare().then(() => {
       room.players.forEach((player) => {
         player.score = 0;
       });
+
+      // Reset agent state so event detection starts fresh; invalidate in-flight responses
+      agentManager.resetGame(roomCode);
+      agentRoomGeneration.set(
+        roomCode,
+        (agentRoomGeneration.get(roomCode) ?? 0) + 1
+      );
 
       // Reset game state to lobby
       room.gameState = {

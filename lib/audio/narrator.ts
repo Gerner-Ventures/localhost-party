@@ -23,19 +23,12 @@ const VOICE_IDS: Record<VoiceId, string> = {
   explorer: "nPczCjzI2devNBz1zQrb", // Brian - resonant, comforting
 };
 
-// Speech queue for sequential narration
-interface NarrationQueueItem {
-  text: string;
-  options: NarratorOptions;
-  resolve: () => void;
-  reject: (error: Error) => void;
-}
-
 class Narrator {
-  private queue: NarrationQueueItem[] = [];
   private isProcessing = false;
   private currentAudio: HTMLAudioElement | null = null;
+  private currentReject: ((error: Error) => void) | null = null;
   private callTimestamps: number[] = [];
+  private generation = 0; // Incremented by stop() to invalidate stale speech
 
   constructor() {
     // Narrator now uses server-side proxy for TTS
@@ -44,45 +37,64 @@ class Narrator {
 
   /**
    * Speak text using ElevenLabs TTS
-   * Validates input length and queue size to prevent abuse
+   * Stops any current speech first — only one speech at a time.
+   * Queuing is handled by AgentContext, not the narrator.
    */
   async speak(text: string, options: NarratorOptions = {}): Promise<void> {
-    return new Promise((resolve, reject) => {
-      // Validate text length
-      if (text.length > RATE_LIMITS.NARRATOR_MAX_TEXT_LENGTH) {
-        const error = new Error(
-          `Text exceeds maximum length of ${RATE_LIMITS.NARRATOR_MAX_TEXT_LENGTH} characters`
-        );
-        reject(error);
+    if (text.length > RATE_LIMITS.NARRATOR_MAX_TEXT_LENGTH) {
+      throw new Error(
+        `Text exceeds maximum length of ${RATE_LIMITS.NARRATOR_MAX_TEXT_LENGTH} characters`
+      );
+    }
+
+    this.stop();
+    const sanitizedText = text.replace(/[<>]/g, "");
+
+    this.isProcessing = true;
+    const myGeneration = this.generation;
+
+    try {
+      if (options.pauseBefore) {
+        await this.sleep(options.pauseBefore);
+        if (this.generation !== myGeneration) return;
+      }
+
+      await this.generateAndPlay(sanitizedText, options, myGeneration);
+      if (this.generation !== myGeneration) return;
+
+      if (options.pauseAfter) {
+        await this.sleep(options.pauseAfter);
+        if (this.generation !== myGeneration) return;
+      }
+
+      options.onComplete?.();
+    } catch (error) {
+      if (this.generation !== myGeneration) return;
+      if (error instanceof Error && error.message === "Speech interrupted")
         return;
+
+      if (process.env.NODE_ENV === "development") {
+        console.error("Narration error:", error);
       }
-
-      // Validate queue size to prevent spam
-      if (this.queue.length >= RATE_LIMITS.NARRATOR_MAX_QUEUE_SIZE) {
-        const error = new Error(
-          `Narrator queue is full (max ${RATE_LIMITS.NARRATOR_MAX_QUEUE_SIZE} items)`
-        );
-        reject(error);
-        return;
+      options.onError?.(error as Error);
+      throw error;
+    } finally {
+      if (this.generation === myGeneration) {
+        this.isProcessing = false;
       }
-
-      // Sanitize text (basic XSS prevention, though TTS doesn't render HTML)
-      const sanitizedText = text.replace(/[<>]/g, "");
-
-      this.queue.push({ text: sanitizedText, options, resolve, reject });
-
-      if (!this.isProcessing) {
-        this.processQueue();
-      }
-    });
+    }
   }
 
   /**
-   * Stop current speech and clear queue
+   * Stop current speech.
    */
   stop(): void {
-    this.queue = [];
+    this.generation++;
     if (this.currentAudio) {
+      if (this.currentReject) {
+        this.currentReject(new Error("Speech interrupted"));
+        this.currentReject = null;
+      }
       this.currentAudio.pause();
       this.currentAudio = null;
     }
@@ -93,7 +105,7 @@ class Narrator {
    * Check if currently speaking
    */
   get isSpeaking(): boolean {
-    return this.isProcessing || this.queue.length > 0;
+    return this.isProcessing;
   }
 
   /**
@@ -132,72 +144,19 @@ class Narrator {
   }
 
   /**
-   * Process narration queue
-   */
-  private async processQueue(): Promise<void> {
-    if (this.queue.length === 0) {
-      this.isProcessing = false;
-      return;
-    }
-
-    this.isProcessing = true;
-    const item = this.queue.shift();
-
-    // Guard against concurrent queue modifications
-    if (!item) {
-      this.isProcessing = false;
-      return;
-    }
-
-    try {
-      // Pause before speaking if specified
-      if (item.options.pauseBefore) {
-        await this.sleep(item.options.pauseBefore);
-      }
-
-      // Generate and play speech
-      await this.generateAndPlay(item.text, item.options);
-
-      // Pause after speaking if specified
-      if (item.options.pauseAfter) {
-        await this.sleep(item.options.pauseAfter);
-      }
-
-      // Call completion callback
-      if (item.options.onComplete) {
-        item.options.onComplete();
-      }
-
-      item.resolve();
-    } catch (error) {
-      if (process.env.NODE_ENV === "development") {
-        console.error("Narration error:", error);
-      }
-
-      if (item.options.onError) {
-        item.options.onError(error as Error);
-      }
-
-      item.reject(error as Error);
-    }
-
-    // Process next item
-    this.processQueue();
-  }
-
-  /**
-   * Generate speech and play it
+   * Generate speech and play it.
+   * Checks generation after each async step to bail out if stop() was called.
    */
   private async generateAndPlay(
     text: string,
-    options: NarratorOptions
+    options: NarratorOptions,
+    expectedGeneration: number
   ): Promise<void> {
     // Check rate limit before making API call
     if (this.isRateLimited()) {
       if (process.env.NODE_ENV === "development") {
         console.log("[Narrator - Rate Limited]", text);
       }
-      await this.sleep(text.length * 50); // Simulate speech duration
       return;
     }
 
@@ -221,6 +180,8 @@ class Narrator {
         }),
       });
 
+      if (this.generation !== expectedGeneration) return;
+
       if (!response.ok) {
         const error = await response.json().catch(() => ({
           message: response.statusText,
@@ -238,6 +199,9 @@ class Narrator {
 
       // Get audio blob from server
       const audioBlob = await response.blob();
+
+      if (this.generation !== expectedGeneration) return;
+
       const audioUrl = URL.createObjectURL(audioBlob);
 
       // Play audio
@@ -246,7 +210,15 @@ class Narrator {
       // Cleanup
       URL.revokeObjectURL(audioUrl);
     } catch (error) {
-      // Fallback to silent mode
+      // If interrupted by stop(), rethrow so speak()'s generation check handles it
+      if (error instanceof Error && error.message === "Speech interrupted") {
+        throw error;
+      }
+
+      // If generation changed, bail silently — stop() already cleaned up
+      if (this.generation !== expectedGeneration) return;
+
+      // Fallback to silent mode for real TTS errors
       if (process.env.NODE_ENV === "development") {
         console.log("[Narrator - Fallback Mode]", text);
         console.warn(
@@ -254,12 +226,13 @@ class Narrator {
           error instanceof Error ? error.message : error
         );
       }
-      await this.sleep(text.length * 50);
+      return;
     }
   }
 
   /**
-   * Play audio from URL
+   * Play audio from URL.
+   * Tracks the reject function so stop() can interrupt cleanly.
    */
   private playAudio(url: string, playbackRate = 1.0): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -267,14 +240,17 @@ class Narrator {
       audio.playbackRate = playbackRate;
 
       this.currentAudio = audio;
+      this.currentReject = reject;
 
       audio.addEventListener("ended", () => {
         this.currentAudio = null;
+        this.currentReject = null;
         resolve();
       });
 
       audio.addEventListener("error", (error) => {
         this.currentAudio = null;
+        this.currentReject = null;
         reject(error);
       });
 
