@@ -913,39 +913,54 @@ app.prepare().then(() => {
               room.gameState.players = room.players;
               broadcastGameState(roomCode);
 
-              // If we transitioned to category_announce (new round), generate questions
+              // If we transitioned to round_results, auto-advance after showing results
               const newState = room.gameState as PixelShowdownState;
-              if (newState.phase === "category_announce") {
-                const apiBaseUrl = getApiBaseUrl();
-                generateTriviaQuestions({
-                  apiBaseUrl,
-                  state: newState,
-                  onQuestionsReady: (questions, category) => {
-                    room.gameState = setTriviaQuestions(
-                      room.gameState as PixelShowdownState,
-                      questions,
-                      category
-                    );
-                    room.gameState.players = room.players;
-                    broadcastGameState(roomCode);
+              if (newState.phase === "round_results") {
+                setTimeout(() => {
+                  const resultState = room.gameState as PixelShowdownState;
+                  if (resultState.phase !== "round_results") return;
 
-                    // Auto-advance to first question
-                    setTimeout(() => {
-                      room.gameState = startTriviaQuestions(
-                        room.gameState as PixelShowdownState
-                      );
-                      room.gameState.players = room.players;
-                      broadcastGameState(roomCode);
-                    }, 3000);
-                  },
-                  onError: (error) => {
-                    logError(
-                      "Trivia",
-                      "Failed to generate questions for next round",
-                      error
-                    );
-                  },
-                });
+                  // Advance to next round (or game_results if final round)
+                  room.gameState = advanceTriviaRound(resultState);
+                  room.gameState.players = room.players;
+                  broadcastGameState(roomCode);
+
+                  const afterAdvance = room.gameState as PixelShowdownState;
+                  // If we're now in category_announce, generate new questions
+                  if (afterAdvance.phase === "category_announce") {
+                    const apiBaseUrl = getApiBaseUrl();
+                    generateTriviaQuestions({
+                      apiBaseUrl,
+                      state: afterAdvance,
+                      onQuestionsReady: (questions, category) => {
+                        room.gameState = setTriviaQuestions(
+                          room.gameState as PixelShowdownState,
+                          questions,
+                          category
+                        );
+                        room.gameState.players = room.players;
+                        broadcastGameState(roomCode);
+
+                        // Auto-advance to first question
+                        setTimeout(() => {
+                          room.gameState = startTriviaQuestions(
+                            room.gameState as PixelShowdownState
+                          );
+                          room.gameState.players = room.players;
+                          broadcastGameState(roomCode);
+                        }, 3000);
+                      },
+                      onError: (error) => {
+                        logError(
+                          "Trivia",
+                          "Failed to generate questions for next round",
+                          error
+                        );
+                      },
+                    });
+                  }
+                  // If game_results, no further action needed
+                }, 5000); // Show round results for 5 seconds
               }
             }, 4000);
           }, 4000);
