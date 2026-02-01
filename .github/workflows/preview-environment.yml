@@ -95,15 +95,8 @@ jobs:
           url=$(vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }})
           echo "url=$url" >> $GITHUB_OUTPUT
 
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-
-      - name: Deploy WebSocket server to Railway preview
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: |
-          railway link --project ${{ secrets.RAILWAY_PROJECT_ID }} --environment preview
-          railway up --detach
+      # Railway auto-deploys via native GitHub integration (PR environments enabled)
+      # No CLI deployment needed - Railway handles this automatically
 
       - name: Comment PR with preview info
         uses: actions/github-script@v7
