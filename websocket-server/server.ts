@@ -527,6 +527,11 @@ io.on("connection", (socket) => {
         },
         onError: (error) => {
           logError("Trivia", "Failed to generate questions", error);
+          // Notify clients of the error
+          io.to(roomCode).emit("game:error", {
+            message: "Failed to generate trivia questions",
+            details: error.message,
+          });
         },
       });
     }
@@ -696,6 +701,10 @@ io.on("connection", (socket) => {
               "Failed to generate questions for next round",
               error
             );
+            io.to(roomCode).emit("game:error", {
+              message: "Failed to generate trivia questions",
+              details: error.message,
+            });
           },
         });
       }
@@ -874,6 +883,10 @@ io.on("connection", (socket) => {
                         "Failed to generate questions for next round",
                         error
                       );
+                      io.to(roomCode).emit("game:error", {
+                        message: "Failed to generate trivia questions",
+                        details: error.message,
+                      });
                     },
                   });
                 }
@@ -942,6 +955,10 @@ io.on("connection", (socket) => {
             "Failed to generate questions for next round",
             error
           );
+          io.to(roomCode).emit("game:error", {
+            message: "Failed to generate trivia questions",
+            details: error.message,
+          });
         },
       });
     }
@@ -978,6 +995,7 @@ process.on("SIGINT", () => {
 // Start Server
 // ============================================================================
 httpServer.listen(port, () => {
+  const apiUrl = getApiBaseUrl();
   console.log(`
 +----------------------------------------------------+
 |                                                    |
@@ -985,8 +1003,18 @@ httpServer.listen(port, () => {
 |                                                    |
 |     Port: ${port}                                     |
 |     Health: http://localhost:${port}/health            |
+|     API URL: ${apiUrl.padEnd(35)}|
 |     Status: Ready for connections                  |
 |                                                    |
 +----------------------------------------------------+
   `);
+
+  // Warn if using localhost in production (likely misconfigured)
+  if (apiUrl.includes("localhost") && process.env.NODE_ENV === "production") {
+    console.warn(
+      "⚠️  WARNING: API URL is set to localhost in production mode.",
+      "This will cause trivia question generation to fail.",
+      "Set NEXT_PUBLIC_LH_PARTY_APP_URL to the Vercel deployment URL."
+    );
+  }
 });
