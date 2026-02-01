@@ -95,6 +95,9 @@ jobs:
           url=$(vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }})
           echo "url=$url" >> $GITHUB_OUTPUT
 
+      # Railway auto-deploys via native GitHub integration (PR environments enabled)
+      # No CLI deployment needed - Railway handles this automatically
+
       - name: Comment PR with preview info
         uses: actions/github-script@v7
         with:

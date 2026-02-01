@@ -507,10 +507,11 @@ io.on("connection", (socket) => {
       generateTriviaQuestions({
         apiBaseUrl,
         state: room.gameState as PixelShowdownState,
-        onQuestionsReady: (questions, _category) => {
+        onQuestionsReady: (questions, category) => {
           room.gameState = setTriviaQuestions(
             room.gameState as PixelShowdownState,
-            questions
+            questions,
+            category
           );
           room.gameState.players = room.players;
           broadcastGameState(roomCode);
@@ -526,6 +527,11 @@ io.on("connection", (socket) => {
         },
         onError: (error) => {
           logError("Trivia", "Failed to generate questions", error);
+          // Notify clients of the error
+          io.to(roomCode).emit("game:error", {
+            message: "Failed to generate trivia questions",
+            details: error.message,
+          });
         },
       });
     }
@@ -671,10 +677,11 @@ io.on("connection", (socket) => {
         generateTriviaQuestions({
           apiBaseUrl,
           state: newState,
-          onQuestionsReady: (questions, _category) => {
+          onQuestionsReady: (questions, category) => {
             room.gameState = setTriviaQuestions(
               room.gameState as PixelShowdownState,
-              questions
+              questions,
+              category
             );
             room.gameState.players = room.players;
             broadcastGameState(roomCode);
@@ -694,6 +701,10 @@ io.on("connection", (socket) => {
               "Failed to generate questions for next round",
               error
             );
+            io.to(roomCode).emit("game:error", {
+              message: "Failed to generate trivia questions",
+              details: error.message,
+            });
           },
         });
       }
@@ -820,6 +831,68 @@ io.on("connection", (socket) => {
           );
           room.gameState.players = room.players;
           broadcastGameState(roomCode);
+
+          // Auto-advance from leaderboard to next question or round_results
+          setTimeout(() => {
+            const leaderboardState = room.gameState as PixelShowdownState;
+            // Only advance if still in leaderboard phase
+            if (leaderboardState.phase !== "leaderboard") return;
+
+            room.gameState = advanceTrivia(leaderboardState);
+            room.gameState.players = room.players;
+            broadcastGameState(roomCode);
+
+            // If we transitioned to round_results, auto-advance to next round
+            const afterAdvance = room.gameState as PixelShowdownState;
+            if (afterAdvance.phase === "round_results") {
+              setTimeout(() => {
+                const resultState = room.gameState as PixelShowdownState;
+                if (resultState.phase !== "round_results") return;
+
+                room.gameState = advanceTriviaRound(resultState);
+                room.gameState.players = room.players;
+                broadcastGameState(roomCode);
+
+                // If category_announce, generate new questions
+                const newState = room.gameState as PixelShowdownState;
+                if (newState.phase === "category_announce") {
+                  const apiBaseUrl = getApiBaseUrl();
+                  generateTriviaQuestions({
+                    apiBaseUrl,
+                    state: newState,
+                    onQuestionsReady: (questions, category) => {
+                      room.gameState = setTriviaQuestions(
+                        room.gameState as PixelShowdownState,
+                        questions,
+                        category
+                      );
+                      room.gameState.players = room.players;
+                      broadcastGameState(roomCode);
+
+                      setTimeout(() => {
+                        room.gameState = startTriviaQuestions(
+                          room.gameState as PixelShowdownState
+                        );
+                        room.gameState.players = room.players;
+                        broadcastGameState(roomCode);
+                      }, 3000);
+                    },
+                    onError: (error) => {
+                      logError(
+                        "Trivia",
+                        "Failed to generate questions for next round",
+                        error
+                      );
+                      io.to(roomCode).emit("game:error", {
+                        message: "Failed to generate trivia questions",
+                        details: error.message,
+                      });
+                    },
+                  });
+                }
+              }, 5000);
+            }
+          }, 4000);
         }, 4000);
       }, 500);
     }
@@ -858,10 +931,11 @@ io.on("connection", (socket) => {
       generateTriviaQuestions({
         apiBaseUrl,
         state: newState,
-        onQuestionsReady: (questions, _category) => {
+        onQuestionsReady: (questions, category) => {
           room.gameState = setTriviaQuestions(
             room.gameState as PixelShowdownState,
-            questions
+            questions,
+            category
           );
           room.gameState.players = room.players;
           broadcastGameState(roomCode);
@@ -881,6 +955,10 @@ io.on("connection", (socket) => {
             "Failed to generate questions for next round",
             error
           );
+          io.to(roomCode).emit("game:error", {
+            message: "Failed to generate trivia questions",
+            details: error.message,
+          });
         },
       });
     }
@@ -917,6 +995,7 @@ process.on("SIGINT", () => {
 // Start Server
 // ============================================================================
 httpServer.listen(port, () => {
+  const apiUrl = getApiBaseUrl();
   console.log(`
 +----------------------------------------------------+
 |                                                    |
@@ -924,8 +1003,18 @@ httpServer.listen(port, () => {
 |                                                    |
 |     Port: ${port}                                     |
 |     Health: http://localhost:${port}/health            |
+|     API URL: ${apiUrl.padEnd(35)}|
 |     Status: Ready for connections                  |
 |                                                    |
 +----------------------------------------------------+
   `);
+
+  // Warn if using localhost in production (likely misconfigured)
+  if (apiUrl.includes("localhost") && process.env.NODE_ENV === "production") {
+    console.warn(
+      "⚠️  WARNING: API URL is set to localhost in production mode.",
+      "This will cause trivia question generation to fail.",
+      "Set NEXT_PUBLIC_LH_PARTY_APP_URL to the Vercel deployment URL."
+    );
+  }
 });

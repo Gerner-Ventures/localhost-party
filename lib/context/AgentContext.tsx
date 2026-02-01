@@ -49,9 +49,12 @@ export function AgentProvider({ children }: AgentProviderProps) {
   const { speak, isSpeaking, muted, stopSpeaking } = useAudio();
 
   const [state, setState] = useState<AgentState>(() => {
+    // Default to OFF in development to save API credits
+    const defaultEnabled = process.env.NODE_ENV === "production";
+
     if (typeof window === "undefined") {
       return {
-        agentsEnabled: true,
+        agentsEnabled: defaultEnabled,
         speakingAgent: null,
         speechQueue: [],
       };
@@ -63,7 +66,7 @@ export function AgentProvider({ children }: AgentProviderProps) {
       try {
         const parsed = JSON.parse(saved);
         return {
-          agentsEnabled: parsed.agentsEnabled ?? true,
+          agentsEnabled: parsed.agentsEnabled ?? defaultEnabled,
           speakingAgent: null,
           speechQueue: [],
         };
@@ -73,7 +76,7 @@ export function AgentProvider({ children }: AgentProviderProps) {
     }
 
     return {
-      agentsEnabled: true,
+      agentsEnabled: defaultEnabled,
       speakingAgent: null,
       speechQueue: [],
     };

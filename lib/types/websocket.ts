@@ -1,6 +1,13 @@
 import { Player } from "./player";
 import { GameState, GameType } from "./game";
 import type { VoiceId } from "../audio/types";
+import type {
+  DebugSetPhasePayload,
+  DebugAddPlayerPayload,
+  DebugRemovePlayerPayload,
+  DebugSetScorePayload,
+  DebugSetStatePayload,
+} from "./debug";
 
 // Payload types for submit/vote events
 export interface SubmitPayload {
@@ -80,4 +87,10 @@ export type WebSocketEvent =
   // Pixel Showdown trivia events
   | { type: "trivia:answer"; payload: TriviaAnswerPayload }
   | { type: "trivia:buzz"; payload: TriviaBuzzerPayload }
-  | { type: "trivia:next-question"; payload: TriviaNextQuestionPayload };
+  | { type: "trivia:next-question"; payload: TriviaNextQuestionPayload }
+  // Debug panel events
+  | { type: "debug:set-phase"; payload: DebugSetPhasePayload }
+  | { type: "debug:add-player"; payload: DebugAddPlayerPayload }
+  | { type: "debug:remove-player"; payload: DebugRemovePlayerPayload }
+  | { type: "debug:set-score"; payload: DebugSetScorePayload }
+  | { type: "debug:set-state"; payload: DebugSetStatePayload };

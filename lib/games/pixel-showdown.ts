@@ -372,6 +372,7 @@ export function advanceToNextRound(
     phase: "category_announce",
     questionNumber: 0,
     currentQuestion: undefined,
+    currentCategory: "Loading...", // Will be set when new questions are generated
     questionStartTime: undefined,
     answers: [],
     questionQueue: [], // Will be populated by server
