@@ -90,8 +90,11 @@ Uses Husky hooks:
 | `lib/games/quiplash.ts`            | AI Quiplash game logic (reference for new games) |
 | `lib/types/game.ts`                | Core game state types                            |
 | `lib/context/WebSocketContext.tsx` | Socket.io client React context                   |
+| `lib/context/DebugContext.tsx`     | Debug panel state and WebSocket event logging    |
 | `lib/audio/narrator.ts`            | ElevenLabs TTS integration                       |
 | `prisma/schema.prisma`             | Database schema                                  |
+| `components/debug/CommandMenu.tsx` | Command palette (Cmd+/) for dev tools            |
+| `components/debug/DebugPanel.tsx`  | Debug panel UI with state/events/phases/players  |
 
 ## Adding a New Game
 
@@ -102,3 +105,40 @@ Uses Husky hooks:
 5. Update WebSocket handlers in `server.ts`
 
 See `lib/games/quiplash.ts` and `.claude/skills/generate-game.md` for patterns.
+
+## Developer Tools
+
+### Command Menu (Cmd+/)
+
+Press `Cmd+/` (or `Ctrl+/`) on the display view to open the command palette. Available commands:
+
+| Category | Command              | Description                              |
+| -------- | -------------------- | ---------------------------------------- |
+| Debug    | Toggle Debug Panel   | Open/close the debug panel (shortcut: D) |
+| Debug    | Clear Event Log      | Clear captured WebSocket events          |
+| Debug    | Pause/Resume Logging | Pause or resume WebSocket event capture  |
+| Vercel   | Open Vercel Toolbar  | Access Vercel's dev tools (shortcut: V)  |
+| Game     | Copy Room Code       | Copy current room code to clipboard      |
+
+### Debug Panel
+
+The debug panel provides real-time inspection and manipulation of game state:
+
+- **State Tab**: View and edit game state JSON
+- **Events Tab**: WebSocket event log with filtering, pause, and clear
+- **Phases Tab**: Quick buttons to jump to any game phase (Quiplash/Pixel Showdown)
+- **Players Tab**: Add fake players, remove players, edit scores
+
+Debug panel state persists to localStorage. Server-side handlers in `server.ts` process `debug:*` events.
+
+### Vercel Integration
+
+The project includes Vercel's dev tools suite:
+
+- **@vercel/toolbar**: Comments, feature flags, layout shift detection, accessibility audits
+- **@vercel/analytics**: Web analytics (auto-enabled on deployments)
+- **@vercel/speed-insights**: Core Web Vitals monitoring
+
+Run `vercel link` to connect your local project and enable all toolbar features.
+
+Configuration in `next.config.ts` uses `withVercelToolbar` plugin wrapper.

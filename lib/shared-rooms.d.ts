@@ -15,7 +15,7 @@ export interface SharedRoom {
     roomCode: string;
     score: number;
     isConnected: boolean;
-    socketId: string;
+    socketId?: string;
   }>;
   gameState: {
     roomCode: string;

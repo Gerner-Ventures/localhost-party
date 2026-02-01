@@ -19,14 +19,17 @@ export function PixelShowdownDisplay({ gameState }: PixelShowdownDisplayProps) {
     totalRounds,
     playerStats,
     questionQueue,
+    currentCategory,
   } = gameState;
 
   // Category Announcement Phase
   if (phase === "category_announce") {
+    // Use currentCategory if set, otherwise fall back to question data
     const category =
+      currentCategory ||
       currentQuestion?.category ||
       questionQueue[0]?.category ||
-      "General Knowledge";
+      "Loading...";
 
     return (
       <div className="text-center animate-slide-up">

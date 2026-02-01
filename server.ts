@@ -32,6 +32,7 @@ import { handleAnswer as handleTriviaAnswerRaw } from "./lib/games/pixel-showdow
 import type { PixelShowdownState } from "./lib/types/pixel-showdown";
 import { db } from "./lib/db";
 import type { GameState } from "./lib/types/game";
+import { DebugSetStateSchema } from "./lib/types/debug";
 import { getAgentManager } from "./lib/agents";
 import { logDebug, logInfo, logWarn, logError } from "./lib/logger";
 
@@ -47,6 +48,42 @@ const playerSockets = new Map(); // socketId -> player info
 
 // Initialize AI agent manager
 const agentManager = getAgentManager();
+
+// Track auto-advance timeouts per room to prevent memory leaks
+const roomTimeouts = new Map<string, NodeJS.Timeout[]>();
+
+// Helper to schedule a room timeout with automatic tracking
+function scheduleRoomTimeout(
+  roomCode: string,
+  callback: () => void,
+  delay: number
+): NodeJS.Timeout {
+  const timeoutId = setTimeout(() => {
+    // Remove this timeout from tracking when it fires
+    const timeouts = roomTimeouts.get(roomCode);
+    if (timeouts) {
+      const index = timeouts.indexOf(timeoutId);
+      if (index > -1) timeouts.splice(index, 1);
+    }
+    callback();
+  }, delay);
+
+  // Track the timeout
+  const existing = roomTimeouts.get(roomCode) || [];
+  existing.push(timeoutId);
+  roomTimeouts.set(roomCode, existing);
+
+  return timeoutId;
+}
+
+// Clear all pending timeouts for a room
+function clearRoomTimeouts(roomCode: string): void {
+  const timeouts = roomTimeouts.get(roomCode);
+  if (timeouts) {
+    timeouts.forEach((id) => clearTimeout(id));
+    roomTimeouts.delete(roomCode);
+  }
+}
 
 // Room cleanup settings
 const ROOM_IDLE_TIMEOUT = 30 * 60 * 1000; // 30 minutes
@@ -197,6 +234,7 @@ app.prepare().then(() => {
       const hasNoRecentActivity = now - room.lastActivity > ROOM_CLEANUP_BUFFER;
 
       if (isIdle && isEmpty && hasNoRecentActivity) {
+        clearRoomTimeouts(code);
         sharedRooms.remove(code);
         agentManager.cleanupRoom(code);
         cleanedCount++;
@@ -424,22 +462,27 @@ app.prepare().then(() => {
         generateTriviaQuestions({
           apiBaseUrl,
           state: room.gameState as PixelShowdownState,
-          onQuestionsReady: (questions) => {
+          onQuestionsReady: (questions, category) => {
             room.gameState = setTriviaQuestions(
               room.gameState as PixelShowdownState,
-              questions
+              questions,
+              category
             );
             room.gameState.players = room.players;
             broadcastGameState(roomCode);
 
             // Auto-advance to first question after category announcement
-            setTimeout(() => {
-              room.gameState = startTriviaQuestions(
-                room.gameState as PixelShowdownState
-              );
-              room.gameState.players = room.players;
-              broadcastGameState(roomCode);
-            }, 3000);
+            scheduleRoomTimeout(
+              roomCode,
+              () => {
+                room.gameState = startTriviaQuestions(
+                  room.gameState as PixelShowdownState
+                );
+                room.gameState.players = room.players;
+                broadcastGameState(roomCode);
+              },
+              3000
+            );
           },
           onError: (error) => {
             logError("Trivia", "Failed to generate questions", error);
@@ -767,22 +810,27 @@ app.prepare().then(() => {
           generateTriviaQuestions({
             apiBaseUrl,
             state: newState,
-            onQuestionsReady: (questions) => {
+            onQuestionsReady: (questions, category) => {
               room.gameState = setTriviaQuestions(
                 room.gameState as PixelShowdownState,
-                questions
+                questions,
+                category
               );
               room.gameState.players = room.players;
               broadcastGameState(roomCode);
 
               // Auto-advance to first question
-              setTimeout(() => {
-                room.gameState = startTriviaQuestions(
-                  room.gameState as PixelShowdownState
-                );
-                room.gameState.players = room.players;
-                broadcastGameState(roomCode);
-              }, 3000);
+              scheduleRoomTimeout(
+                roomCode,
+                () => {
+                  room.gameState = startTriviaQuestions(
+                    room.gameState as PixelShowdownState
+                  );
+                  room.gameState.players = room.players;
+                  broadcastGameState(roomCode);
+                },
+                3000
+              );
             },
             onError: (error) => {
               logError(
@@ -887,22 +935,104 @@ app.prepare().then(() => {
 
       // Check if all players have answered
       if (result?.allAnswered) {
-        setTimeout(() => {
-          room.gameState = transitionAfterAllAnswered(
-            room.gameState as PixelShowdownState
-          );
-          room.gameState.players = room.players;
-          broadcastGameState(roomCode);
-
-          // Auto-advance to leaderboard after reveal
-          setTimeout(() => {
-            room.gameState = transitionToLeaderboardPhase(
+        scheduleRoomTimeout(
+          roomCode,
+          () => {
+            room.gameState = transitionAfterAllAnswered(
               room.gameState as PixelShowdownState
             );
             room.gameState.players = room.players;
             broadcastGameState(roomCode);
-          }, 4000);
-        }, 500);
+
+            // Auto-advance to leaderboard after reveal
+            scheduleRoomTimeout(
+              roomCode,
+              () => {
+                room.gameState = transitionToLeaderboardPhase(
+                  room.gameState as PixelShowdownState
+                );
+                room.gameState.players = room.players;
+                broadcastGameState(roomCode);
+
+                // Auto-advance to next question after leaderboard
+                scheduleRoomTimeout(
+                  roomCode,
+                  () => {
+                    const currentState = room.gameState as PixelShowdownState;
+                    if (currentState.phase !== "leaderboard") return;
+
+                    room.gameState = advanceTrivia(currentState);
+                    room.gameState.players = room.players;
+                    broadcastGameState(roomCode);
+
+                    // If we transitioned to round_results, auto-advance after showing results
+                    const newState = room.gameState as PixelShowdownState;
+                    if (newState.phase === "round_results") {
+                      scheduleRoomTimeout(
+                        roomCode,
+                        () => {
+                          const resultState =
+                            room.gameState as PixelShowdownState;
+                          if (resultState.phase !== "round_results") return;
+
+                          // Advance to next round (or game_results if final round)
+                          room.gameState = advanceTriviaRound(resultState);
+                          room.gameState.players = room.players;
+                          broadcastGameState(roomCode);
+
+                          const afterAdvance =
+                            room.gameState as PixelShowdownState;
+                          // If we're now in category_announce, generate new questions
+                          if (afterAdvance.phase === "category_announce") {
+                            const apiBaseUrl = getApiBaseUrl();
+                            generateTriviaQuestions({
+                              apiBaseUrl,
+                              state: afterAdvance,
+                              onQuestionsReady: (questions, category) => {
+                                room.gameState = setTriviaQuestions(
+                                  room.gameState as PixelShowdownState,
+                                  questions,
+                                  category
+                                );
+                                room.gameState.players = room.players;
+                                broadcastGameState(roomCode);
+
+                                // Auto-advance to first question
+                                scheduleRoomTimeout(
+                                  roomCode,
+                                  () => {
+                                    room.gameState = startTriviaQuestions(
+                                      room.gameState as PixelShowdownState
+                                    );
+                                    room.gameState.players = room.players;
+                                    broadcastGameState(roomCode);
+                                  },
+                                  3000
+                                );
+                              },
+                              onError: (error) => {
+                                logError(
+                                  "Trivia",
+                                  "Failed to generate questions for next round",
+                                  error
+                                );
+                              },
+                            });
+                          }
+                          // If game_results, no further action needed
+                        },
+                        5000
+                      ); // Show round results for 5 seconds
+                    }
+                  },
+                  4000
+                );
+              },
+              4000
+            );
+          },
+          500
+        );
       }
     });
 
@@ -939,22 +1069,27 @@ app.prepare().then(() => {
         generateTriviaQuestions({
           apiBaseUrl,
           state: newState,
-          onQuestionsReady: (questions) => {
+          onQuestionsReady: (questions, category) => {
             room.gameState = setTriviaQuestions(
               room.gameState as PixelShowdownState,
-              questions
+              questions,
+              category
             );
             room.gameState.players = room.players;
             broadcastGameState(roomCode);
 
             // Auto-advance to first question
-            setTimeout(() => {
-              room.gameState = startTriviaQuestions(
-                room.gameState as PixelShowdownState
-              );
-              room.gameState.players = room.players;
-              broadcastGameState(roomCode);
-            }, 3000);
+            scheduleRoomTimeout(
+              roomCode,
+              () => {
+                room.gameState = startTriviaQuestions(
+                  room.gameState as PixelShowdownState
+                );
+                room.gameState.players = room.players;
+                broadcastGameState(roomCode);
+              },
+              3000
+            );
           },
           onError: (error) => {
             logError(
@@ -994,6 +1129,9 @@ app.prepare().then(() => {
       }
 
       logInfo("Game", `Restarting game in room ${roomCode}`);
+
+      // Clear any pending auto-advance timeouts
+      clearRoomTimeouts(roomCode);
 
       // Reset all player scores
       room.players.forEach((player) => {
@@ -1039,6 +1177,188 @@ app.prepare().then(() => {
 
       agentManager.setRoomEnabled(roomCode, enabled);
       io.to(roomCode).emit("agent:toggled", { enabled });
+    });
+
+    // ============================================
+    // DEBUG PANEL HANDLERS
+    // Only available in development and to display clients
+    // ============================================
+
+    // Helper to validate debug requests
+    const validateDebugRequest = (roomCode: string): boolean => {
+      // Only allow in development
+      if (process.env.NODE_ENV === "production") {
+        socket.emit("player:error", {
+          message: "Debug commands not available in production",
+        });
+        return false;
+      }
+
+      // Only allow from display clients
+      if (!socket.data.isDisplay) {
+        socket.emit("player:error", {
+          message: "Debug commands only available to display",
+        });
+        return false;
+      }
+
+      if (!isValidRoomCode(roomCode)) {
+        socket.emit("player:error", { message: "Invalid room code" });
+        return false;
+      }
+
+      return true;
+    };
+
+    // Debug: Set game phase directly
+    socket.on("debug:set-phase", ({ roomCode, phase }) => {
+      if (!validateDebugRequest(roomCode)) return;
+
+      const room = sharedRooms.get(roomCode);
+      if (!room) {
+        socket.emit("player:error", { message: "Room not found" });
+        return;
+      }
+
+      logInfo("Debug", `Setting phase to "${phase}" in room ${roomCode}`);
+      room.gameState.phase = phase;
+      room.gameState.players = room.players;
+      broadcastGameState(roomCode);
+    });
+
+    // Debug: Add a fake player
+    socket.on("debug:add-player", ({ roomCode, name }) => {
+      if (!validateDebugRequest(roomCode)) return;
+
+      const room = sharedRooms.get(roomCode);
+      if (!room) {
+        socket.emit("player:error", { message: "Room not found" });
+        return;
+      }
+
+      const sanitizedName = sanitizePlayerName(name);
+      if (!sanitizedName) {
+        socket.emit("player:error", { message: "Invalid player name" });
+        return;
+      }
+
+      // Check if player with same name already exists
+      if (room.players.some((p) => p.name === sanitizedName)) {
+        socket.emit("player:error", { message: "Player name already exists" });
+        return;
+      }
+
+      logInfo(
+        "Debug",
+        `Adding fake player "${sanitizedName}" to room ${roomCode}`
+      );
+
+      const player = {
+        id: crypto.randomUUID(),
+        name: sanitizedName,
+        roomCode,
+        score: 0,
+        isConnected: true,
+        socketId: undefined, // Fake players have no socket
+      };
+      room.players.push(player);
+      room.gameState.players = room.players;
+      broadcastGameState(roomCode);
+    });
+
+    // Debug: Remove a player
+    socket.on("debug:remove-player", ({ roomCode, playerId }) => {
+      if (!validateDebugRequest(roomCode)) return;
+
+      const room = sharedRooms.get(roomCode);
+      if (!room) {
+        socket.emit("player:error", { message: "Room not found" });
+        return;
+      }
+
+      const playerIndex = room.players.findIndex((p) => p.id === playerId);
+      if (playerIndex === -1) {
+        socket.emit("player:error", { message: "Player not found" });
+        return;
+      }
+
+      const removedPlayer = room.players[playerIndex];
+      logInfo(
+        "Debug",
+        `Removing player "${removedPlayer.name}" from room ${roomCode}`
+      );
+
+      room.players.splice(playerIndex, 1);
+      room.gameState.players = room.players;
+      broadcastGameState(roomCode);
+    });
+
+    // Debug: Set player score
+    socket.on("debug:set-score", ({ roomCode, playerId, score }) => {
+      if (!validateDebugRequest(roomCode)) return;
+
+      const room = sharedRooms.get(roomCode);
+      if (!room) {
+        socket.emit("player:error", { message: "Room not found" });
+        return;
+      }
+
+      const player = room.players.find((p) => p.id === playerId);
+      if (!player) {
+        socket.emit("player:error", { message: "Player not found" });
+        return;
+      }
+
+      const numericScore =
+        typeof score === "number" ? score : parseInt(score, 10);
+      if (isNaN(numericScore)) {
+        socket.emit("player:error", { message: "Invalid score value" });
+        return;
+      }
+
+      logInfo(
+        "Debug",
+        `Setting score for "${player.name}" to ${numericScore} in room ${roomCode}`
+      );
+
+      player.score = numericScore;
+      room.gameState.players = room.players;
+      broadcastGameState(roomCode);
+    });
+
+    // Debug: Set partial game state
+    socket.on("debug:set-state", ({ roomCode, partialState }) => {
+      if (!validateDebugRequest(roomCode)) return;
+
+      const room = sharedRooms.get(roomCode);
+      if (!room) {
+        socket.emit("player:error", { message: "Room not found" });
+        return;
+      }
+
+      // Validate partial state with Zod to prevent prototype pollution
+      const validationResult = DebugSetStateSchema.safeParse(partialState);
+      if (!validationResult.success) {
+        socket.emit("player:error", {
+          message: "Invalid state object",
+          details: validationResult.error.issues.map((i) => i.message),
+        });
+        return;
+      }
+
+      const safePartialState = validationResult.data;
+      logInfo(
+        "Debug",
+        `Updating game state in room ${roomCode}`,
+        safePartialState
+      );
+
+      // Apply validated state changes
+      Object.assign(room.gameState, safePartialState);
+
+      // Always maintain single source of truth for players
+      room.gameState.players = room.players;
+      broadcastGameState(roomCode);
     });
 
     // Heartbeat/ping for connection health

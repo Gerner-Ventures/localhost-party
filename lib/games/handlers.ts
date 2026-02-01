@@ -319,9 +319,15 @@ export function advanceTriviaRound(
  */
 export function setTriviaQuestions(
   state: PixelShowdownState,
-  questions: TriviaQuestion[]
+  questions: TriviaQuestion[],
+  category?: string
 ): PixelShowdownState {
-  return setQuestionQueue(state, questions);
+  const updatedState = setQuestionQueue(state, questions);
+  // Store the category if provided, or derive from first question
+  const resolvedCategory = category || questions[0]?.category;
+  return resolvedCategory
+    ? { ...updatedState, currentCategory: resolvedCategory }
+    : updatedState;
 }
 
 /**

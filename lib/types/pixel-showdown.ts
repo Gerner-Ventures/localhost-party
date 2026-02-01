@@ -119,6 +119,9 @@ export interface PixelShowdownState {
   phase: PixelShowdownPhase;
   players: Player[];
 
+  // Round category (set when questions are generated)
+  currentCategory?: string;
+
   // Question state
   currentQuestion?: TriviaQuestion;
   questionNumber: number; // Current question in round (1-indexed)
