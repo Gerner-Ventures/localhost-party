@@ -4,13 +4,22 @@ import { useState, useCallback, useMemo } from "react";
 import { useWebSocket } from "@/lib/context/WebSocketContext";
 import { useDebug } from "@/lib/context/DebugContext";
 
+// Max size in characters before falling back to plain JSON (50KB)
+const MAX_HIGHLIGHTED_SIZE = 50000;
+
 /**
  * Syntax highlight JSON with colors for different value types
+ * Falls back to plain JSON for large objects to prevent performance issues
  */
 function SyntaxHighlightedJSON({ data }: { data: unknown }) {
   const highlighted = useMemo(() => {
     const json = JSON.stringify(data, null, 2);
     if (!json) return null;
+
+    // Skip expensive highlighting for very large objects
+    if (json.length > MAX_HIGHLIGHTED_SIZE) {
+      return [{ text: json, className: "text-green-400" }];
+    }
 
     // Split into tokens and colorize
     const parts: { text: string; className: string }[] = [];

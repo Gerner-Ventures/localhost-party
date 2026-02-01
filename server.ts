@@ -32,6 +32,7 @@ import { handleAnswer as handleTriviaAnswerRaw } from "./lib/games/pixel-showdow
 import type { PixelShowdownState } from "./lib/types/pixel-showdown";
 import { db } from "./lib/db";
 import type { GameState } from "./lib/types/game";
+import { DebugSetStateSchema } from "./lib/types/debug";
 import { getAgentManager } from "./lib/agents";
 import { logDebug, logInfo, logWarn, logError } from "./lib/logger";
 
@@ -1335,16 +1336,24 @@ app.prepare().then(() => {
         return;
       }
 
-      if (typeof partialState !== "object" || partialState === null) {
-        socket.emit("player:error", { message: "Invalid state object" });
+      // Validate partial state with Zod to prevent prototype pollution
+      const validationResult = DebugSetStateSchema.safeParse(partialState);
+      if (!validationResult.success) {
+        socket.emit("player:error", {
+          message: "Invalid state object",
+          details: validationResult.error.issues.map((i) => i.message),
+        });
         return;
       }
 
-      logInfo("Debug", `Updating game state in room ${roomCode}`, partialState);
+      const safePartialState = validationResult.data;
+      logInfo(
+        "Debug",
+        `Updating game state in room ${roomCode}`,
+        safePartialState
+      );
 
-      // Shallow merge the partial state, but preserve critical references
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { roomCode: _rc, players: _pl, ...safePartialState } = partialState;
+      // Apply validated state changes
       Object.assign(room.gameState, safePartialState);
 
       // Always maintain single source of truth for players

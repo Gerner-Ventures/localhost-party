@@ -8,6 +8,7 @@ import { DebugEventLog } from "./DebugEventLog";
 import { DebugPhaseControls } from "./DebugPhaseControls";
 import { DebugPlayerManager } from "./DebugPlayerManager";
 import { DebugSettings } from "./DebugSettings";
+import { DebugErrorBoundary } from "./DebugErrorBoundary";
 
 const TABS: { id: DebugTab; label: string; icon: string }[] = [
   { id: "state", label: "State", icon: "{ }" },
@@ -17,7 +18,7 @@ const TABS: { id: DebugTab; label: string; icon: string }[] = [
   { id: "settings", label: "Settings", icon: "⚙" },
 ];
 
-export function DebugPanel() {
+function DebugPanelContent() {
   const { state, isHydrated, togglePanel, setActiveTab } = useDebug();
   const { isConnected, gameState } = useWebSocket();
 
@@ -105,5 +106,17 @@ export function DebugPanel() {
         {state.activeTab === "settings" && <DebugSettings />}
       </div>
     </div>
+  );
+}
+
+/**
+ * Debug panel wrapped in error boundary.
+ * If the debug panel crashes, it won't take down the entire app.
+ */
+export function DebugPanel() {
+  return (
+    <DebugErrorBoundary>
+      <DebugPanelContent />
+    </DebugErrorBoundary>
   );
 }

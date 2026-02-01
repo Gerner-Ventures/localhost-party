@@ -9,11 +9,12 @@ import React, {
   useRef,
 } from "react";
 import { useWebSocket } from "./WebSocketContext";
-import type {
-  DebugState,
-  DebugContextValue,
-  DebugEvent,
-  DebugTab,
+import {
+  isValidDebugTab,
+  type DebugState,
+  type DebugContextValue,
+  type DebugEvent,
+  type DebugTab,
 } from "../types/debug";
 import type { GamePhase, GameState } from "../types/game";
 
@@ -54,14 +55,18 @@ export function DebugProvider({ children }: DebugProviderProps) {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        isOpen = parsed.isOpen ?? false;
-        activeTab = parsed.activeTab ?? "state";
+        isOpen = typeof parsed.isOpen === "boolean" ? parsed.isOpen : false;
+        // Validate activeTab to prevent arbitrary string injection
+        activeTab = isValidDebugTab(parsed.activeTab)
+          ? parsed.activeTab
+          : "state";
       } catch {
         // Invalid JSON, use defaults
       }
     }
 
-    // Restore saved settings - this is a valid one-time initialization from localStorage
+    // Restore saved settings - one-time initialization from localStorage after hydration
+    // This is a valid pattern for SSR hydration - only runs once on mount
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setState((prev) => ({
       ...prev,
@@ -115,14 +120,12 @@ export function DebugProvider({ children }: DebugProviderProps) {
     logEventRef.current = logEventCallback;
   }, [logEventCallback]);
 
-  // Intercept socket events for logging
+  // Stable handler ref for socket events - prevents stale closures
+  const handleAnyEventRef = useRef<(event: string, ...args: unknown[]) => void>(
+    () => {}
+  );
   useEffect(() => {
-    // Skip if no socket or already intercepted this specific socket instance
-    if (!socket || interceptedSocketRef.current === socket) return;
-    interceptedSocketRef.current = socket;
-
-    // Listen to all incoming events
-    const handleAnyEvent = (event: string, ...args: unknown[]) => {
+    handleAnyEventRef.current = (event: string, ...args: unknown[]) => {
       if (!isPausedRef.current && event !== "pong") {
         logEventRef.current?.({
           direction: "received",
@@ -131,11 +134,23 @@ export function DebugProvider({ children }: DebugProviderProps) {
         });
       }
     };
+  });
 
-    socket.onAny(handleAnyEvent);
+  // Intercept socket events for logging
+  useEffect(() => {
+    // Skip if no socket or already intercepted this specific socket instance
+    if (!socket || interceptedSocketRef.current === socket) return;
+    interceptedSocketRef.current = socket;
+
+    // Wrapper that calls the ref - stable identity for cleanup
+    const handler = (event: string, ...args: unknown[]) => {
+      handleAnyEventRef.current(event, ...args);
+    };
+
+    socket.onAny(handler);
 
     return () => {
-      socket.offAny(handleAnyEvent);
+      socket.offAny(handler);
       // Clear ref so new socket instances can be intercepted
       interceptedSocketRef.current = null;
     };
