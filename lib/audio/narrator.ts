@@ -36,6 +36,8 @@ class Narrator {
   private isProcessing = false;
   private currentAudio: HTMLAudioElement | null = null;
   private callTimestamps: number[] = [];
+  private apiKeyInvalid = false;
+  private apiKeyWarningShown = false;
 
   constructor() {
     // Narrator now uses server-side proxy for TTS
@@ -201,6 +203,12 @@ class Narrator {
       return;
     }
 
+    // Skip API calls if we've detected an invalid API key
+    if (this.apiKeyInvalid) {
+      await this.sleep(text.length * 50); // Simulate speech duration
+      return;
+    }
+
     try {
       const voiceId = VOICE_IDS[options.voice || "game-host"];
       const speed = options.speed || 1.0;
@@ -225,6 +233,24 @@ class Narrator {
         const error = await response.json().catch(() => ({
           message: response.statusText,
         }));
+
+        // Handle auth/config errors by disabling TTS (show warning once)
+        if (response.status === 401 || response.status === 500) {
+          this.apiKeyInvalid = true;
+          if (
+            !this.apiKeyWarningShown &&
+            process.env.NODE_ENV === "development"
+          ) {
+            this.apiKeyWarningShown = true;
+            console.warn(
+              "[Narrator] TTS disabled - API key invalid or not configured. " +
+                "Set NEXT_PUBLIC_ELEVENLABS_API_KEY in your environment."
+            );
+          }
+          // Fall through to silent mode instead of throwing
+          await this.sleep(text.length * 50);
+          return;
+        }
 
         if (process.env.NODE_ENV === "development") {
           console.error(

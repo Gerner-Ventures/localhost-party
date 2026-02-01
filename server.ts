@@ -1041,6 +1041,168 @@ app.prepare().then(() => {
       io.to(roomCode).emit("agent:toggled", { enabled });
     });
 
+    // ============================================
+    // DEBUG PANEL HANDLERS
+    // ============================================
+
+    // Debug: Set game phase directly
+    socket.on("debug:set-phase", ({ roomCode, phase }) => {
+      if (!isValidRoomCode(roomCode)) {
+        socket.emit("player:error", { message: "Invalid room code" });
+        return;
+      }
+
+      const room = sharedRooms.get(roomCode);
+      if (!room) {
+        socket.emit("player:error", { message: "Room not found" });
+        return;
+      }
+
+      logInfo("Debug", `Setting phase to "${phase}" in room ${roomCode}`);
+      room.gameState.phase = phase;
+      room.gameState.players = room.players;
+      broadcastGameState(roomCode);
+    });
+
+    // Debug: Add a fake player
+    socket.on("debug:add-player", ({ roomCode, name }) => {
+      if (!isValidRoomCode(roomCode)) {
+        socket.emit("player:error", { message: "Invalid room code" });
+        return;
+      }
+
+      const room = sharedRooms.get(roomCode);
+      if (!room) {
+        socket.emit("player:error", { message: "Room not found" });
+        return;
+      }
+
+      const sanitizedName = sanitizePlayerName(name);
+      if (!sanitizedName) {
+        socket.emit("player:error", { message: "Invalid player name" });
+        return;
+      }
+
+      // Check if player with same name already exists
+      if (room.players.some((p) => p.name === sanitizedName)) {
+        socket.emit("player:error", { message: "Player name already exists" });
+        return;
+      }
+
+      logInfo(
+        "Debug",
+        `Adding fake player "${sanitizedName}" to room ${roomCode}`
+      );
+
+      const player = {
+        id: crypto.randomUUID(),
+        name: sanitizedName,
+        roomCode,
+        score: 0,
+        isConnected: true,
+        socketId: undefined, // Fake players have no socket
+      };
+      room.players.push(player);
+      room.gameState.players = room.players;
+      broadcastGameState(roomCode);
+    });
+
+    // Debug: Remove a player
+    socket.on("debug:remove-player", ({ roomCode, playerId }) => {
+      if (!isValidRoomCode(roomCode)) {
+        socket.emit("player:error", { message: "Invalid room code" });
+        return;
+      }
+
+      const room = sharedRooms.get(roomCode);
+      if (!room) {
+        socket.emit("player:error", { message: "Room not found" });
+        return;
+      }
+
+      const playerIndex = room.players.findIndex((p) => p.id === playerId);
+      if (playerIndex === -1) {
+        socket.emit("player:error", { message: "Player not found" });
+        return;
+      }
+
+      const removedPlayer = room.players[playerIndex];
+      logInfo(
+        "Debug",
+        `Removing player "${removedPlayer.name}" from room ${roomCode}`
+      );
+
+      room.players.splice(playerIndex, 1);
+      room.gameState.players = room.players;
+      broadcastGameState(roomCode);
+    });
+
+    // Debug: Set player score
+    socket.on("debug:set-score", ({ roomCode, playerId, score }) => {
+      if (!isValidRoomCode(roomCode)) {
+        socket.emit("player:error", { message: "Invalid room code" });
+        return;
+      }
+
+      const room = sharedRooms.get(roomCode);
+      if (!room) {
+        socket.emit("player:error", { message: "Room not found" });
+        return;
+      }
+
+      const player = room.players.find((p) => p.id === playerId);
+      if (!player) {
+        socket.emit("player:error", { message: "Player not found" });
+        return;
+      }
+
+      const numericScore =
+        typeof score === "number" ? score : parseInt(score, 10);
+      if (isNaN(numericScore)) {
+        socket.emit("player:error", { message: "Invalid score value" });
+        return;
+      }
+
+      logInfo(
+        "Debug",
+        `Setting score for "${player.name}" to ${numericScore} in room ${roomCode}`
+      );
+
+      player.score = numericScore;
+      room.gameState.players = room.players;
+      broadcastGameState(roomCode);
+    });
+
+    // Debug: Set partial game state
+    socket.on("debug:set-state", ({ roomCode, partialState }) => {
+      if (!isValidRoomCode(roomCode)) {
+        socket.emit("player:error", { message: "Invalid room code" });
+        return;
+      }
+
+      const room = sharedRooms.get(roomCode);
+      if (!room) {
+        socket.emit("player:error", { message: "Room not found" });
+        return;
+      }
+
+      if (typeof partialState !== "object" || partialState === null) {
+        socket.emit("player:error", { message: "Invalid state object" });
+        return;
+      }
+
+      logInfo("Debug", `Updating game state in room ${roomCode}`, partialState);
+
+      // Shallow merge the partial state, but preserve critical references
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { roomCode: _rc, players: _pl, ...safePartialState } = partialState;
+      Object.assign(room.gameState, safePartialState);
+
+      // Always maintain single source of truth for players
+      room.gameState.players = room.players;
+      broadcastGameState(roomCode);
+    });
+
     // Heartbeat/ping for connection health
     socket.on("ping", () => {
       socket.emit("pong");
