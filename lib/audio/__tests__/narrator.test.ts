@@ -52,8 +52,8 @@ describe("Narrator", () => {
     vi.useRealTimers();
   });
 
-  describe("Queue Processing", () => {
-    it("should process queue items sequentially", async () => {
+  describe("Speech Processing", () => {
+    it("should process sequential speak calls", async () => {
       const mockBlob = new Blob(["audio"], { type: "audio/mpeg" });
       (global.fetch as Mock).mockResolvedValue({
         ok: true,
@@ -65,15 +65,17 @@ describe("Narrator", () => {
         .mockImplementation(() => createMockAudio()) as unknown as typeof Audio;
 
       const promise1 = narrator.speak("test 1");
-      const promise2 = narrator.speak("test 2");
-
       await vi.runAllTimersAsync();
-      await Promise.all([promise1, promise2]);
+      await promise1;
+
+      const promise2 = narrator.speak("test 2");
+      await vi.runAllTimersAsync();
+      await promise2;
 
       expect(global.fetch).toHaveBeenCalledTimes(2);
     });
 
-    it("should handle concurrent queue modifications safely", async () => {
+    it("should handle concurrent speak calls safely", async () => {
       const mockBlob = new Blob(["audio"], { type: "audio/mpeg" });
       (global.fetch as Mock).mockResolvedValue({
         ok: true,
@@ -84,19 +86,25 @@ describe("Narrator", () => {
         .fn()
         .mockImplementation(() => createMockAudio()) as unknown as typeof Audio;
 
-      // Fire multiple requests simultaneously
-      const promises = Array.from({ length: 3 }, (_, i) =>
-        narrator.speak(`test ${i}`)
-      );
+      // Fire multiple requests — each new speak() calls stop() on the previous one.
+      // Because fetch is mock-resolved, earlier calls may still fire the fetch,
+      // but their generation check will cause them to bail after the response.
+      // The key contract: only the LAST speech plays to completion.
+      narrator.speak("test 0");
+      narrator.speak("test 1");
+      const lastPromise = narrator.speak("test 2");
 
       await vi.runAllTimersAsync();
-      await Promise.all(promises);
+      await lastPromise;
 
-      // All should complete without errors
-      expect(global.fetch).toHaveBeenCalledTimes(3);
+      // The last speak should have completed successfully
+      // Verify the last call was for "test 2"
+      const lastCall = (global.fetch as Mock).mock.calls.at(-1);
+      expect(lastCall?.[0]).toBe("/api/tts");
+      expect(lastCall?.[1].body).toContain("test 2");
     });
 
-    it("should stop queue and clear pending items", async () => {
+    it("should stop current speech immediately", async () => {
       const mockBlob = new Blob(["audio"], { type: "audio/mpeg" });
       (global.fetch as Mock).mockResolvedValue({
         ok: true,
@@ -107,14 +115,12 @@ describe("Narrator", () => {
         .fn()
         .mockImplementation(() => createMockAudio()) as unknown as typeof Audio;
 
-      // Queue multiple items
       narrator.speak("test 1");
       narrator.speak("test 2");
 
       // Stop immediately
       narrator.stop();
 
-      // Queue should be cleared
       expect(narrator.isSpeaking).toBe(false);
     });
   });
@@ -146,27 +152,22 @@ describe("Narrator", () => {
       await expect(promise).resolves.not.toThrow();
     });
 
-    it("should reject when queue is full", async () => {
-      // Make fetch hang to prevent queue from processing
-      (global.fetch as Mock).mockImplementation(
-        () => new Promise(() => {}) // Never resolves, keeps first item processing
-      );
+    it("should replace pending speech with new speech", async () => {
+      // Make fetch hang so first speech stays in-flight
+      (global.fetch as Mock).mockImplementation(() => new Promise(() => {}));
 
       global.Audio = vi
         .fn()
         .mockImplementation(() => createMockAudio()) as unknown as typeof Audio;
 
-      // Fill the queue - first call starts processing, rest queue up
-      // Queue size is 5, but one is being processed, so we can queue 5 more before overflow
-      const promises: Promise<void>[] = [];
-      for (let i = 0; i < RATE_LIMITS.NARRATOR_MAX_QUEUE_SIZE + 1; i++) {
-        promises.push(narrator.speak(`test ${i}`));
-      }
+      narrator.speak("first");
+      // While first is in-flight, start a new one — this calls stop() internally
+      narrator.speak("second");
 
-      // This one should fail (queue full) - the 7th item (1 processing + 5 queued = 6, 7th rejected)
-      await expect(narrator.speak("overflow")).rejects.toThrow(/queue is full/);
+      // Second is now in-flight
+      expect(narrator.isSpeaking).toBe(true);
 
-      // Clean up - stop the narrator to reject hanging promises
+      // Clean up
       narrator.stop();
     });
 

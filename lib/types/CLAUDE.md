@@ -5,8 +5,12 @@
 
 ### Jan 30, 2026
 
-| ID    | Time     | T   | Title                                           | Read |
-| ----- | -------- | --- | ----------------------------------------------- | ---- |
-| #1058 | 10:46 PM | 🔵  | Merge conflict detected in websocket types file | ~335 |
+| ID    | Time     | T   | Title                                                                 | Read |
+| ----- | -------- | --- | --------------------------------------------------------------------- | ---- |
+| #1145 | 11:05 PM | 🔴  | Committed comprehensive code review fixes for AI agent system         | ~495 |
+| #1103 | 10:54 PM | 🔴  | WebSocket types merge conflict resolved with all event types          | ~380 |
+| #1095 | 10:53 PM | 🔵  | Game type system supports five game modes with shared state structure | ~208 |
+| #1087 | 10:52 PM | 🔄  | Merged WebSocket type definitions combining agent and game features   | ~384 |
+| #1058 | 10:46 PM | 🔵  | Merge conflict detected in websocket types file                       | ~335 |
 
 </claude-mem-context>

@@ -10,7 +10,6 @@ import {
 } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useWebSocket } from "@/lib/context/WebSocketContext";
-import { useAudio } from "@/lib/context/AudioContext";
 import { getPlayerPrompt, getVotingOptions } from "@/lib/games/quiplash";
 import type { PixelShowdownState } from "@/lib/types/pixel-showdown";
 
@@ -18,7 +17,6 @@ function GameControllerContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { gameState, emit, isConnected } = useWebSocket();
-  const { playSound, unlockAudio, isUnlocked } = useAudio();
 
   const roomCode = searchParams.get("code")?.toUpperCase();
   const [playerName] = useState(() => {
@@ -101,15 +99,6 @@ function GameControllerContent() {
         data: submissionText.trim(),
       },
     });
-
-    // Audio in background (non-blocking)
-    if (!isUnlocked) {
-      unlockAudio()
-        .then(() => playSound("submit-complete"))
-        .catch(() => {});
-    } else {
-      playSound("submit-complete");
-    }
   };
 
   const handleVote = (submissionPlayerId: string) => {
@@ -122,15 +111,6 @@ function GameControllerContent() {
         data: submissionPlayerId,
       },
     });
-
-    // Audio in background (non-blocking)
-    if (!isUnlocked) {
-      unlockAudio()
-        .then(() => playSound("vote-cast"))
-        .catch(() => {});
-    } else {
-      playSound("vote-cast");
-    }
   };
 
   const handleNextRound = () => {
@@ -140,8 +120,6 @@ function GameControllerContent() {
       type: "game:next-round",
       payload: { roomCode },
     });
-
-    playSound("button-click");
   };
 
   const handleRestart = () => {
@@ -151,8 +129,6 @@ function GameControllerContent() {
       type: "game:restart",
       payload: { roomCode },
     });
-
-    playSound("button-click");
   };
 
   // Trivia answer handler (Pixel Showdown)
@@ -174,16 +150,8 @@ function GameControllerContent() {
       });
 
       setTriviaAnswerText("");
-
-      if (!isUnlocked) {
-        unlockAudio()
-          .then(() => playSound("submit-complete"))
-          .catch(() => {});
-      } else {
-        playSound("submit-complete");
-      }
     },
-    [roomCode, emit, isUnlocked, unlockAudio, playSound]
+    [roomCode, emit]
   );
 
   if (!roomCode || !gameState || !currentPlayer) {

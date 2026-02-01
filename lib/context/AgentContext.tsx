@@ -6,6 +6,7 @@ import React, {
   useState,
   useEffect,
   useCallback,
+  useRef,
 } from "react";
 import { useWebSocket } from "./WebSocketContext";
 import { useAudio } from "./AudioContext";
@@ -44,8 +45,8 @@ interface AgentProviderProps {
  * and queues them for the narrator to speak.
  */
 export function AgentProvider({ children }: AgentProviderProps) {
-  const { socket, emit } = useWebSocket();
-  const { speak, isSpeaking, muted } = useAudio();
+  const { socket, emit, gameState } = useWebSocket();
+  const { speak, isSpeaking, muted, stopSpeaking } = useAudio();
 
   const [state, setState] = useState<AgentState>(() => {
     // Default to OFF in development to save API credits
@@ -91,14 +92,59 @@ export function AgentProvider({ children }: AgentProviderProps) {
     }
   }, [state.agentsEnabled]);
 
+  // Clear speech queue
+  const clearSpeechQueue = useCallback(() => {
+    setState((prev) => ({ ...prev, speechQueue: [], speakingAgent: null }));
+  }, []);
+
+  // Track recently spoken texts to prevent duplicates (text → timestamp)
+  const recentTextsRef = useRef<Map<string, number>>(new Map());
+
+  // Use ref for agentsEnabled so the socket listener doesn't re-register on toggle
+  const agentsEnabledRef = useRef(state.agentsEnabled);
+  useEffect(() => {
+    agentsEnabledRef.current = state.agentsEnabled;
+  }, [state.agentsEnabled]);
+
+  // Flush stale speech when game phase changes
+  // Phase changes come from WebSocket (external system), so setState in effect is appropriate
+  const prevPhaseRef = useRef(gameState?.phase);
+  useEffect(() => {
+    const currentPhase = gameState?.phase;
+    if (currentPhase && currentPhase !== prevPhaseRef.current) {
+      prevPhaseRef.current = currentPhase;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- phase changes come from WebSocket (external system)
+      clearSpeechQueue();
+      stopSpeaking();
+    }
+  }, [gameState?.phase, clearSpeechQueue, stopSpeaking]);
+
   // Listen for agent:speak events
   useEffect(() => {
     if (!socket) return;
 
     const handleAgentSpeak = (payload: AgentSpeakPayload) => {
-      if (!state.agentsEnabled) {
+      if (!agentsEnabledRef.current) {
         console.log(
           `[Agent] Ignoring speech from ${payload.agentName} - agents disabled`
+        );
+        return;
+      }
+
+      // Deduplicate: skip if this exact text was already spoken recently
+      const DEDUP_WINDOW_MS = 30000;
+      const now = Date.now();
+
+      // Lazy cleanup: remove expired entries
+      for (const [text, timestamp] of recentTextsRef.current) {
+        if (now - timestamp > DEDUP_WINDOW_MS) {
+          recentTextsRef.current.delete(text);
+        }
+      }
+
+      if (recentTextsRef.current.has(payload.text)) {
+        console.log(
+          `[Agent] Skipping duplicate speech from ${payload.agentName}`
         );
         return;
       }
@@ -108,12 +154,12 @@ export function AgentProvider({ children }: AgentProviderProps) {
         payload.text
       );
 
-      // Add to queue, sorted by priority
+      recentTextsRef.current.set(payload.text, now);
+
+      // Single-slot replacement: at most 1 playing + 1 waiting.
+      // New speech replaces any pending queued speech rather than accumulating.
       setState((prev) => {
-        const newQueue = [...prev.speechQueue, payload].sort(
-          (a, b) => b.priority - a.priority
-        );
-        return { ...prev, speechQueue: newQueue };
+        return { ...prev, speechQueue: [payload] };
       });
     };
 
@@ -122,7 +168,7 @@ export function AgentProvider({ children }: AgentProviderProps) {
     return () => {
       socket.off("agent:speak", handleAgentSpeak);
     };
-  }, [socket, state.agentsEnabled]);
+  }, [socket]);
 
   // Process next speech in queue
   const processNextSpeech = useCallback(() => {
@@ -171,7 +217,7 @@ export function AgentProvider({ children }: AgentProviderProps) {
   // Queue processing inherently requires state updates in response to external events (WebSocket)
   useEffect(() => {
     if (!muted && !isSpeaking && state.speechQueue.length > 0) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- queue processing responds to external WebSocket events
       processNextSpeech();
     }
   }, [muted, isSpeaking, state.speechQueue.length, processNextSpeech]);
@@ -189,11 +235,6 @@ export function AgentProvider({ children }: AgentProviderProps) {
     },
     [emit]
   );
-
-  // Clear speech queue
-  const clearSpeechQueue = useCallback(() => {
-    setState((prev) => ({ ...prev, speechQueue: [], speakingAgent: null }));
-  }, []);
 
   const value: AgentContextValue = {
     agentsEnabled: state.agentsEnabled,
