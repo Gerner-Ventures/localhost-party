@@ -1,7 +1,12 @@
 #!/usr/bin/env sh
 
-# Format and lint staged files
-npx lint-staged
+# Prevent direct commits to main branch
+branch=$(git rev-parse --abbrev-ref HEAD)
+if [ "$branch" = "main" ]; then
+  echo "Error: Direct commits to main are not allowed."
+  echo "Please create a feature branch and open a pull request."
+  exit 1
+fi
 
-# Type check entire project (fast with incremental builds)
-npm run type-check
+# Format and lint staged files (includes type checking via tsc-files)
+npx lint-staged
