@@ -32,6 +32,31 @@ import {
   getDifficultyForRound,
 } from "./pixel-showdown";
 
+/** Minimum and maximum player counts per game type */
+const PLAYER_LIMITS: Record<GameType, { min: number; max: number }> = {
+  quiplash: { min: 3, max: 8 },
+  "pixel-showdown": { min: 2, max: 10 },
+};
+
+/**
+ * Validate player count for a game type.
+ * Returns an error message if invalid, or null if valid.
+ */
+export function validatePlayerCount(
+  gameType: GameType,
+  playerCount: number
+): string | null {
+  const limits = PLAYER_LIMITS[gameType];
+  if (!limits) return null; // Unknown games have no limits
+  if (playerCount < limits.min) {
+    return `${gameType} requires at least ${limits.min} players (got ${playerCount})`;
+  }
+  if (playerCount > limits.max) {
+    return `${gameType} supports at most ${limits.max} players (got ${playerCount})`;
+  }
+  return null;
+}
+
 /**
  * Result of initializing a game
  */
@@ -42,13 +67,19 @@ export interface GameInitResult {
 }
 
 /**
- * Initialize a game based on type
+ * Initialize a game based on type.
+ * Throws if the player count is outside the allowed range for the game.
  */
 export function initializeGame(
   gameType: GameType,
   roomCode: string,
   players: Player[]
 ): GameInitResult {
+  const validationError = validatePlayerCount(gameType, players.length);
+  if (validationError) {
+    throw new Error(validationError);
+  }
+
   switch (gameType) {
     case "quiplash":
       return {
