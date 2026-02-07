@@ -1,3 +1,4 @@
+// Player limits: Quiplash 3-8, Pixel Showdown 2-10
 /**
  * Shared Game Handlers
  *
