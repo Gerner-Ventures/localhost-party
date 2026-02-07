@@ -1,3 +1,6 @@
+/** Maximum players per game type */
+export const MAX_PLAYERS: Record<string, number> = { quiplash: 8, "pixel-showdown": 10 };
+
 /**
  * Shared Game Handlers
  *
