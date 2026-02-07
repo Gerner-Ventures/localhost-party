@@ -1,0 +1,10 @@
+team: localhost-party
+ticket_system: github
+project_key: Gerner-Ventures/localhost-party
+specs:
+  auto_tickets: false
+  require_review: false
+agents:
+  doc_updates: true
+  pr_analysis: true
+  stale_detection: 30d
