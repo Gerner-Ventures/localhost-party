@@ -36,6 +36,14 @@ import { DebugSetStateSchema } from "./lib/types/debug";
 import { getAgentManager } from "./lib/agents";
 import { logDebug, logInfo, logWarn, logError } from "./lib/logger";
 
+// Game registry and contracts - auto-registers all games on import
+import { gameRegistry } from "./lib/games";
+import { createEventRouter } from "./lib/server/event-router";
+import type { GameEventRouter } from "./lib/server/event-router";
+
+// Feature flag for new event router (set to true to use registry-based routing)
+const USE_NEW_EVENT_ROUTER = process.env.USE_NEW_EVENT_ROUTER === "true";
+
 const dev = process.env.NODE_ENV !== "production";
 const hostname = "localhost";
 const port = parseInt(process.env.PORT || "3000", 10);
@@ -277,6 +285,24 @@ app.prepare().then(() => {
     process.exit(0);
   });
 
+  // Initialize game event router (for new registry-based event handling)
+  // Will be used when USE_NEW_EVENT_ROUTER is enabled
+  let eventRouter: GameEventRouter | null = null;
+  if (USE_NEW_EVENT_ROUTER) {
+    logInfo("Server", "Using new event router with game registry");
+    logInfo(
+      "Server",
+      `Registered games: ${gameRegistry.getSupportedGames().join(", ")}`
+    );
+    // Event router will be initialized after broadcastGameState is defined
+  } else {
+    logInfo("Server", "Using legacy event handlers");
+    logInfo(
+      "Server",
+      `Game registry available with: ${gameRegistry.getSupportedGames().join(", ")}`
+    );
+  }
+
   /**
    * Broadcast game state to all clients in a room.
    * Ensures room.players is the single source of truth before emitting.
@@ -359,6 +385,16 @@ app.prepare().then(() => {
         }, AGENT_DEBOUNCE_MS)
       );
     }
+  }
+
+  // Initialize event router now that broadcastGameState is defined
+  if (USE_NEW_EVENT_ROUTER) {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    eventRouter = createEventRouter(io, {
+      broadcastGameState,
+      scheduleRoomTimeout,
+      debug: dev,
+    });
   }
 
   io.on("connection", (socket) => {
