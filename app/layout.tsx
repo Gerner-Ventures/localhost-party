@@ -5,6 +5,7 @@ import { AudioProvider } from "@/lib/context/AudioContext";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { VercelToolbar } from "@vercel/toolbar/next";
+import PostHogAnalytics from "./posthog";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -34,6 +35,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <AudioProvider>{children}</AudioProvider>
+        <PostHogAnalytics />
         <Analytics />
         <SpeedInsights />
         {shouldShowToolbar && <VercelToolbar />}
