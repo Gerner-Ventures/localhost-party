@@ -14,6 +14,8 @@ await esbuild.build({
   format: "esm",
   // Don't bundle node_modules - they'll be installed via npm
   external: ["socket.io", "dotenv"],
+  // Resolve Next.js @/ path aliases (maps to project root = parent dir)
+  alias: { "@": ".." },
   // Preserve environment variable access
   define: {
     "process.env.NODE_ENV": JSON.stringify(
