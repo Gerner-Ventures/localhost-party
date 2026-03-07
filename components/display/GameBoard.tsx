@@ -5,6 +5,9 @@ import type { PixelShowdownState } from "@/lib/types/pixel-showdown";
 import { QuiplashDisplay } from "@/components/games/QuiplashDisplay";
 import { PixelShowdownDisplay } from "@/components/games/PixelShowdownDisplay";
 
+// Type guards are available from @/lib/types/game-states when migrating to GameStateUnion:
+// import { isQuiplashState, isPixelShowdownState } from "@/lib/types/game-states";
+
 interface GameBoardProps {
   gameState: GameState;
 }
